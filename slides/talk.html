@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>The price of runtime: Modern C++ design</title>
+<meta name="author" content="Alfredo Muela"/>
+<style type="text/css">
+.underline { text-decoration: underline; }
+</style>
+<link rel="stylesheet" href="./reveal.js/dist/reveal.css"/>
+
+<link rel="stylesheet" href="./reveal.js/dist/theme/white.css" id="theme"/>
+
+<link rel="stylesheet" href="./verisure.css"/>
+<link rel="stylesheet" href="./reveal.js/dist/plugin/highlight/zenburn.css"/>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+<section id="sec-title-slide">
+<div class="cover-banner"></div><div class="cover-text"><h1>The price of runtime: Modern C++ design</h1><h2>Alfredo Muela</h2><p class="date">2026</p><img class="cover-logo" src="./img/logo.png" alt="Verisure"/></div>
+</section>
+<section>
+<section id="slide-org8e2de04">
+<h2 id="org8e2de04">things that will happen in the talk</h2>
+<div style="margin-top:60px"></div>
+<ul>
+<li>we'll question habits we all learned as "good OOP design"</li>
+<li>we'll see lots of code and lots of measured numbers</li>
+<li>every number comes from the companion repo, reproducible</li>
+<li>examples are embedded-flavoured; the design rules are not</li>
+<li>we'll have questions as we go, and defer some if needed</li>
+<li>we'll leave with one deliberately <b>unanswered</b> question</li>
+
+</ul>
+</section>
+</section>
+<section>
+<section id="slide-org4bc5af6">
+<h2 id="org4bc5af6">about me</h2>
+<p style="text-align:center">
+Alicante's office is ready!
+</p>
+<div class="side-by-side" style="justify-content:center;">
+  <div style="flex:none;"><img src="./img/AlicanteOffice-03.jpeg" style="max-height:400px;" /></div>
+  <div style="flex:none;"><img src="./img/AlicanteOffice-01.jpeg" style="max-height:400px;" /></div>
+</div>
+</section>
+</section>
+<section>
+<section id="slide-org56a3bad">
+<h2 id="org56a3bad">the starting point</h2>
+<div style="margin-top:60px"></div>
+<p>
+the C++ we were all taught to write:
+</p>
+
+<div class="org-src-container">
+
+<pre><code class="cpp" >class Shape {                       // base class
+public:
+    virtual ~Shape() = default;     // virtual destructor
+    virtual float area() const = 0; // virtual interface
+};
+
+std::vector&lt;std::unique_ptr&lt;Shape&gt;&gt; scene;       // heap, everywhere
+scene.push_back(std::make_unique&lt;Circle&gt;(1.0f)); // one alloc per object
+
+if (!sensor.init()) throw InitError{};           // errors = exceptions
+</code></pre>
+</div>
+
+<p style="text-align:center" class="fragment appear">
+textbook-correct in 2005, but is it still the <b>default</b> in 2026?
+</p>
+</section>
+<section id="slide-orgb7022fc">
+<h3 id="orgb7022fc">the claim</h3>
+<div style="margin-top:60px"></div>
+<blockquote>
+<p>
+Modern C++20 lets you move dispatch, allocation, error handling and
+validation from <b>runtime</b> to <b>compile time</b>, and the result is smaller,
+faster, and harder to get wrong.
+</p>
+</blockquote>
+
+<p style="text-align:center" class="fragment appear">
+<i>born from embedded constraints, but it's just good design, anywhere</i>
+</p>
+</section>
+<section id="slide-orgbddaf8d">
+<h3 id="orgbddaf8d">the experiment</h3>
+<div style="margin-top:60px"></div>
+<ul>
+<li><b>9 demos:</b> each one a side-by-side pair: <i>classic</i> vs <i>modern</i> design</li>
+<li><b>classic:</b> virtual + heap + exceptions + raw loops</li>
+<li><b>modern:</b> concepts, <code>variant</code>, <code>expected</code>, ranges, stack, with <code>-fno-exceptions -fno-rtti</code></li>
+<li><b>equivalence tests</b> prove both produce identical results</li>
+<li><b>targets:</b> x86-64 host (GCC 13.3) and ARM Cortex-M4 (QEMU mps2-an386, <code>arm-none-eabi-gcc 13.2</code>)</li>
+<li><b>flags:</b> <code>-Os -flto -DNDEBUG</code> for all firmware numbers</li>
+<li><b>repo available</b> → every number reproducible, don't take my word</li>
+
+</ul>
+</section>
+<section id="slide-org63c4b20">
+<h3 id="org63c4b20">spoiler alert</h3>
+<div style="margin-top:60px"></div>
+<p style="text-align:center">
+same 9 features, same observable behaviour, full firmware build:
+</p>
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic</th><th>modern</th><th>delta</th></tr>
+<tr><td><b>.text (flash)</b></td><td>19248 B</td><td>6140 B</td>
+    <td class="delta-good"><b>−68%</b></td></tr>
+<tr><td><b>unwinder symbols</b></td><td>46</td><td>0</td>
+    <td class="delta-good"><b>gone</b></td></tr>
+<tr><td><b>heap (malloc on board)</b></td><td>yes</td><td>no</td>
+    <td class="delta-good"><b>gone</b></td></tr>
+</table>
+<br/>
+<p style="text-align:center" class="fragment appear">
+(modern <code>.bss</code> is <b>bigger</b>: +3800 B; its memory is <b>visible at link time</b>
+instead of hidden in the heap; we'll come back to this)
+</p>
+</section>
+<section id="slide-orge884410">
+<h3 id="orge884410">methodology</h3>
+<div style="margin-top:60px"></div>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">tool</th>
+<th scope="col" class="org-left">what it measures</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left"><code>arm-none-eabi-size</code></td>
+<td class="org-left">.text, .data, .bss per section</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>nm</code> + <code>c++filt</code></td>
+<td class="org-left">malloc, vtables, RTTI, unwinder</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>readelf -S</code></td>
+<td class="org-left"><code>.ARM.extab</code> / <code>.ARM.exidx</code> exception tables</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>lizard</code></td>
+<td class="org-left">cyclomatic complexity (CCN)</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>std::chrono</code> benchmarks</td>
+<td class="org-left">hot-path cost (host, <code>-Os -flto</code>)</td>
+</tr>
+
+<tr>
+<td class="org-left">QEMU <code>mps2-an386</code></td>
+<td class="org-left">both firmwares actually run</td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section>
+<section id="slide-orgfd90a1d">
+<h2 id="orgfd90a1d"><span class="act-label act-label--core">Act I</span> :: OOP, use and abuse</h2>
+<div style="margin-top:180px"></div>
+<p style="text-align:center">
+The One where <code>virtual</code> stops being the default answer
+</p>
+</section>
+<section id="slide-org79f81d7">
+<h3 id="org79f81d7">what classic OOP actually costs</h3>
+<div style="margin-top:60px"></div>
+<p>
+the textbook shape hierarchy:
+</p>
+
+<div class="org-src-container">
+
+<pre><code class="cpp" >class Shape {
+public:
+    virtual ~Shape() = default;
+    [[nodiscard]] virtual float area() const = 0;
+    virtual void scale(float factor) = 0;
+};
+class Circle final : public Shape { /* ... */ };
+
+using Scene = std::vector&lt;std::unique_ptr&lt;Shape&gt;&gt;;  // ptr per shape
+
+float total_area(const Scene&amp; scene) {
+    float sum = 0.0f;
+    for (const auto&amp; shape : scene)
+        sum += shape-&gt;area();   // indirect call through the vtable
+    return sum;
+}
+</code></pre>
+</div>
+</section>
+<section id="slide-org665955c">
+<h4 id="org665955c">the bill, itemised</h4>
+<div style="margin-top:60px"></div>
+<p>
+measured on demo 01 (<code>nm</code> on the classic object file):
+</p>
+
+<ul>
+<li><code>_Znwj</code> / <code>_ZdlPv</code> → <b>operator new/delete</b>: one heap allocation per shape</li>
+<li>three <code>_ZTV...</code> vtables + two <code>__cxxabiv1</code> type<sub>info</sub> vtables in flash</li>
+<li>every <code>area()</code> → <b>indirect branch</b> the optimizer cannot inline through</li>
+<li>objects scattered on the heap → pointer chasing, cold caches</li>
+<li><b>intrusive</b>: every shape must inherit from <code>Shape</code> to participate</li>
+
+</ul>
+
+<p style="text-align:center" class="fragment appear">
+and we pay all of this even when the set of shapes <b>never changes</b>
+</p>
+</section>
+<section id="slide-org78589c1">
+<h4 id="org78589c1">the key question</h4>
+<div style="margin-top:60px"></div>
+<p style="text-align:center">
+is your set of types <b>open</b> or <b>closed</b>?
+</p>
+
+<ul>
+<li class="fragment appear"><b>open set</b> (plugins, unknown future types, ABI boundary) → <code>virtual</code> is the right tool</li>
+<li class="fragment appear"><b>closed set</b> (you can name every alternative today) → you are overpaying</li>
+
+</ul>
+
+<p style="text-align:center" class="fragment appear">
+most application and firmware code is <b>closed-set</b> code
+</p>
+</section>
+<section id="slide-org026e148">
+<h3 id="org026e148">the modern way: <code>std::variant</code> + <code>std::visit</code></h3>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >// Plain value types — no base class, no virtual, no intrusion.
+struct Circle {
+    float radius;
+    [[nodiscard]] constexpr float area() const
+    { return pi_v * radius * radius; }
+    constexpr void scale(float f) { radius *= f; }
+};
+struct Rectangle { /* ... */ };
+struct Triangle  { /* ... */ };
+
+// The closed set of alternatives IS the polymorphism.
+using Shape = std::variant&lt;Circle, Rectangle, Triangle&gt;;
+using Scene = std::array&lt;Shape, 6&gt;;     // contiguous, on the stack
+
+float total_area(const Scene&amp; scene) {
+    float sum = 0.0f;
+    for (const auto&amp; shape : scene)
+        sum += std::visit([](const auto&amp; s) { return s.area(); }, shape);
+    return sum;
+}
+</code></pre>
+</div>
+</section>
+<section id="slide-org32d5748">
+<h4 id="org32d5748">the numbers: demo 01</h4>
+<div style="margin-top:60px"></div>
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic</th><th>modern</th><th>delta</th></tr>
+<tr><td><b>.text (ARM, firmware profile)</b></td><td>1320 B</td><td>232 B</td>
+    <td class="delta-good"><b>−82%</b></td></tr>
+<tr><td><b>heap allocations per scene</b></td><td>7</td><td>0</td>
+    <td class="delta-good"><b>−7</b></td></tr>
+<tr><td><b>vtables + type_info</b></td><td>5</td><td>0</td>
+    <td class="delta-good"><b>gone</b></td></tr>
+</table>
+<br/>
+
+<div style="margin-top:10px"></div>
+<ul class="fragment appear">
+<li><code>sizeof(Shape)</code> = largest alternative + index → flat, cache-friendly array</li>
+
+</ul>
+<ul class="fragment appear">
+<li>non-intrusive: any type with <code>area()</code> / <code>scale()</code> can join the variant</li>
+
+</ul>
+<ul class="fragment appear">
+<li>compile time (host, <code>-O2</code>): classic 276 ms vs modern <b>82 ms</b>; <code>&lt;memory&gt;</code> + <code>&lt;vector&gt;</code> are not free either</li>
+
+</ul>
+</section>
+<section id="slide-org213baf6">
+<h4 id="org213baf6">go deeper</h4>
+<div style="margin-top:60px"></div>
+<p style="text-align:center">
+this is exactly the redesign Nico Josuttis walks through in <b>"Rethink Polymorphism in C++"</b>, C++ on Sea 2025
+</p>
+
+<p style="text-align:center" class="fragment appear">
+his punchline: variant-based designs are not a trick, they are <b>value semantics doing polymorphism's job</b>
+</p>
+</section>
+<section id="slide-orgcaf291b">
+<h3 id="orgcaf291b">when the dispatch is static: concepts</h3>
+<div style="margin-top:60px"></div>
+<p>
+classic: an interface class, even when every call site knows the type
+</p>
+
+<div class="org-src-container">
+
+<pre><code class="cpp" >class IFilter {
+public:
+    virtual ~IFilter() = default;
+    virtual void reset() = 0;
+    [[nodiscard]] virtual float process(float sample) = 0;
+};
+
+float run_filter(IFilter&amp; filter, std::span&lt;const float&gt; samples) {
+    filter.reset();
+    float last = 0.0f;
+    for (float s : samples)
+        last = filter.process(s);   // indirect call, EVERY sample
+    return last;
+}
+</code></pre>
+</div>
+</section>
+<section id="slide-orgb883654">
+<h4 id="orgb883654">the modern way: the concept is the interface</h4>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >template &lt;typename F&gt;
+concept Filter = requires(F f, float sample) {
+    { f.reset() }          -&gt; std::same_as&lt;void&gt;;
+    { f.process(sample) }  -&gt; std::same_as&lt;float&gt;;
+};
+
+struct LowPass {
+    float alpha;
+    float state{0.0f};
+    constexpr void reset() { state = 0.0f; }
+    [[nodiscard]] constexpr float process(float s)
+    { state += alpha * (s - state); return state; }
+};
+static_assert(Filter&lt;LowPass&gt;);   // contract checked HERE
+
+template &lt;Filter F&gt;   // generic, specialized per filter, fully inlined
+constexpr float run_filter(F&amp; filter, std::span&lt;const float&gt; samples);
+</code></pre>
+</div>
+
+<p style="text-align:center">
+no vtable, no virtual destructor, and it runs in <code>constexpr</code> too
+</p>
+</section>
+<section id="slide-org5dbf1d6">
+<h4 id="org5dbf1d6">what you get for free</h4>
+<div style="margin-top:60px"></div>
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic</th><th>modern</th><th>delta</th></tr>
+<tr><td><b>.text (ARM, firmware profile)</b></td><td>400 B</td><td>128 B</td>
+    <td class="delta-good"><b>−68%</b></td></tr>
+<tr><td><b>indirect calls in hot loop</b></td><td>1 per sample</td><td>0</td>
+    <td class="delta-good"><b>inlined</b></td></tr>
+</table>
+<br/>
+
+<div style="margin-top:10px"></div>
+<p style="text-align:center" class="fragment appear">
+and when a type doesn't satisfy the contract:
+</p>
+<div class="org-src-container">
+
+<pre class="fragment appear"><code class="sh" >error: static assertion failed
+note: the required expression 'f.process(sample)' is invalid
+</code></pre>
+</div>
+<p style="text-align:center" class="fragment appear">
+the compiler names the missing method, versus a NULL fptr HardFault at 3am (oh, the drama!)
+</p>
+</section>
+<section id="slide-orge14df98">
+<h3 id="orge14df98">the observer pattern, revisited (demo 09)</h3>
+<div style="margin-top:60px"></div>
+<p>
+classic: type erasure taken for granted
+</p>
+
+<div class="org-src-container">
+
+<pre><code class="cpp" >class Subject {
+public:
+    using Handler = std::function&lt;void(const Event&amp;)&gt;;
+    void subscribe(Handler h) { handlers_.push_back(std::move(h)); }
+    void notify(const Event&amp; e) const {
+        for (const auto&amp; h : handlers_)
+            h(e);              // type-erased indirect call, per observer
+    }
+private:
+    std::vector&lt;Handler&gt; handlers_;   // heap + possible alloc per capture
+};
+</code></pre>
+</div>
+</section>
+<section id="slide-org991152b">
+<h4 id="org991152b">the modern way: variadic pack, fold expression</h4>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >template &lt;typename H&gt;
+concept EventHandler = std::invocable&lt;H&amp;, const Event&amp;&gt;;
+
+template &lt;EventHandler... Handlers&gt;
+class Subject {
+public:
+    explicit constexpr Subject(Handlers... handlers)
+        : handlers_{std::move(handlers)...} {}
+
+    constexpr void notify(const Event&amp; event) {
+        std::apply([&amp;](auto&amp;... h) { (h(event), ...); }, handlers_);
+    }                              //  ^^^ fold: unrolled, inlined, in order
+private:
+    std::tuple&lt;Handlers...&gt; handlers_;   // by value, zero heap
+};
+
+Subject subject{on_alarm, on_stats};     // CTAD — no template noise
+</code></pre>
+</div>
+
+<p style="text-align:center" class="fragment appear">
+honest trade-off: the observer set is <b>fixed at compile time</b>;
+if your wiring is known at build time (most of it is), stop paying for runtime flexibility
+</p>
+</section>
+<section id="slide-org04e6bee">
+<h3 id="org04e6bee">data layout is design too: an evolution (demo 03)</h3>
+<div style="margin-top:60px"></div>
+<p>
+stage 1: where most codebases start
+</p>
+
+<div class="org-src-container">
+
+<pre><code class="cpp" >class IParticle {
+public:
+    virtual ~IParticle() = default;
+    virtual void update(float dt) = 0;
+    /* ... */
+};
+class PointParticle final : public IParticle { /* x, y, vx, vy */ };
+
+std::vector&lt;std::unique_ptr&lt;IParticle&gt;&gt; particles;   // ptr per particle
+
+void update(auto&amp; particles, float dt) {
+    for (auto&amp; p : particles)
+        p-&gt;update(dt);    // pointer chase + vtable call, per particle
+}
+</code></pre>
+</div>
+
+<p style="text-align:center">
+N heap allocations, N vtable pointers, objects scattered across the heap
+</p>
+</section>
+<section id="slide-org36da694">
+<h4 id="org36da694">stage 2: drop the base class (Array of Structs)</h4>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >struct Particle {              // a VALUE — no base class, no vtable
+    float x, y, vx, vy;
+    std::uint32_t id;
+    bool alive;                // + 3 bytes padding
+};
+std::vector&lt;Particle&gt; particles;          // ONE allocation, contiguous
+
+void update(std::vector&lt;Particle&gt;&amp; ps, float dt) {
+    for (auto&amp; p : ps)
+        if (p.alive) {
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+        }
+}
+</code></pre>
+</div>
+
+<ul class="fragment appear">
+<li>already the big win: no pointer chasing, no indirect calls, dense storage</li>
+
+</ul>
+<ul class="fragment appear">
+<li>remaining cost: each iteration drags <code>id</code>, <code>alive</code> and padding through the
+cache to reach the four floats it needs</li>
+
+</ul>
+</section>
+<section id="slide-org5c0295f">
+<h4 id="org5c0295f">stage 3: where it makes sense (Struct of Arrays)</h4>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >struct Particles {                        // Struct of Arrays
+    std::array&lt;float, max_particles&gt; x, y, vx, vy;
+    std::array&lt;std::uint8_t, max_particles&gt; alive;
+    std::size_t count{};
+};
+
+void update(Particles&amp; ps, float dt) {
+    for (std::size_t i = 0; i &lt; ps.count; ++i) {
+        const float mask = ps.alive[i] != 0u ? 1.0f : 0.0f;
+        ps.x[i] += ps.vx[i] * dt * mask;  // dense floats, branchless,
+        ps.y[i] += ps.vy[i] * dt * mask;  // vectorizer-friendly
+    }
+}
+</code></pre>
+</div>
+
+<p style="text-align:center">
+cache lines carry <b>only</b> what the loop reads, and the capacity is a
+compile-time budget (<code>.bss</code>), not a heap surprise
+</p>
+</section>
+<section id="slide-org0b13bf6">
+<h4 id="org0b13bf6">the numbers: the evolution, measured</h4>
+<div style="margin-top:60px"></div>
+<p>
+4096 particles × 50000 update iterations, x86-64 host (speedup vs stage 1):
+</p>
+<table style="font-size: 0.8em;">
+<tr><th>stage</th><th><code>-Os -flto</code></th><th><code>-O3 -march=native</code></th><th>ARM .text</th></tr>
+<tr><td>1: <code>vector&lt;unique_ptr&lt;IParticle&gt;&gt;</code></td>
+    <td>1×</td><td>1×</td><td>945 B</td></tr>
+<tr><td>2: <code>vector&lt;Particle&gt;</code> (AoS)</td>
+    <td class="delta-good"><b>~2×</b></td><td class="delta-good"><b>~2×</b></td>
+    <td class="delta-good">365 B</td></tr>
+<tr><td>3: Struct-of-Arrays (SoA)</td>
+    <td class="delta-good">~2× (≈ AoS)</td><td class="delta-good"><b>4.7–4.9×</b></td>
+    <td class="delta-good">276 B</td></tr>
+</table>
+<br/>
+
+<div style="margin-top:10px"></div>
+<ul class="fragment appear">
+<li>step 1→2 is <b>unconditional</b>: values instead of pointers always pays</li>
+
+</ul>
+<ul class="fragment appear">
+<li>step 2→3 pays where the vectorizer (or the cache) is in play; at <code>-Os</code>
+it's noise: <b>measure your loop on your target</b> before restructuring</li>
+
+</ul>
+<ul class="fragment appear">
+<li>deep dive: V. Romeo, <b>"More Speed and Simplicity"</b>, CppCon 2025 Keynote</li>
+
+</ul>
+</section>
+<section id="slide-org0bf49c8">
+<h3 id="org0bf49c8">Act I :: summary</h3>
+<div style="margin-top:60px"></div>
+<table style="font-size: 0.8em;">
+<tr><th>habit</th><th>modern default</th><th>measured</th></tr>
+<tr><td>virtual hierarchy, closed set</td><td>std::variant + std::visit</td>
+    <td class="delta-good">.text −82%, heap 7→0</td></tr>
+<tr><td>interface class, static dispatch</td><td>concepts</td>
+    <td class="delta-good">.text −68%, inlined</td></tr>
+<tr><td>std::function observer list</td><td>variadic pack + fold</td>
+    <td class="delta-good">zero heap, zero erasure</td></tr>
+<tr><td>vector&lt;unique_ptr&lt;Base&gt;&gt; storage</td><td>evolve: AoS values, then SoA where hot</td>
+    <td class="delta-good">~2× always, ~5× vectorized</td></tr>
+</table>
+<br/>
+
+<div style="margin-top:10px"></div>
+<p style="text-align:center" class="fragment appear">
+<code>virtual</code> is a <b>specific tool</b> for open sets and ABI boundaries,
+not the default shape of every design
+</p>
+</section>
+</section>
+<section>
+<section id="slide-orgf894853">
+<h2 id="orgf894853"><span class="act-label act-label--power">Act II</span> :: exceptional vs expected</h2>
+<div style="margin-top:180px"></div>
+<p style="text-align:center">
+The One where errors become <b>values</b>
+</p>
+</section>
+<section id="slide-org7013b41">
+<h3 id="org7013b41">how exceptions become control flow</h3>
+<div style="margin-top:60px"></div>
+<p style="text-align:center">
+a telemetry link where ~10% of frames arrive corrupted:
+</p>
+
+<div class="org-src-container">
+
+<pre><code class="cpp" >Frame parse_frame(std::span&lt;const std::uint8_t&gt; bytes) {
+    if (bytes.size() != frame_size) throw BadLength{};
+    if (bytes[0] != sync_byte)      throw BadSync{};
+    if (bad_checksum(bytes))        throw BadChecksum{};
+    /* ... */
+}
+
+StreamStats process_stream(std::span&lt;const std::uint8_t&gt; bytes) {
+    for (/* each frame */) {
+        try {
+            const Frame f = parse_frame(frame_bytes);
+            ++stats.accepted;
+        } catch (const std::runtime_error&amp;) {
+            ++stats.rejected;        // ← an EXPECTED, FREQUENT outcome
+        }
+    }
+}
+</code></pre>
+</div>
+
+<p style="text-align:center">
+a corrupted frame is not <i>exceptional</i> on a radio link; it's <b>Tuesday</b>
+</p>
+</section>
+<section id="slide-orgd362c29">
+<h4 id="orgd362c29">what every rejected frame costs</h4>
+<div style="margin-top:60px"></div>
+<p style="text-align:center">
+ns per frame, host x86-64, <code>-Os -flto</code> (measured, <code>bench_expected</code>):
+</p>
+<table style="font-size: 0.8em;">
+<tr><th>corrupted frames</th><th>exceptions</th><th>tl::expected</th><th>ratio</th></tr>
+<tr class="row-good"><td>0%</td><td>2.2</td><td>1.7</td><td>1.3×</td></tr>
+<tr class="row-warn"><td>1%</td><td>9.4</td><td>1.4</td><td>6.6×</td></tr>
+<tr class="row-warn"><td>10%</td><td>57.4</td><td>1.2</td><td><b>47×</b></td></tr>
+<tr class="row-bad"><td>25%</td><td>126.6</td><td>1.2</td><td><b>103×</b></td></tr>
+<tr class="row-bad"><td>50%</td><td>429.4</td><td>2.3</td><td><b>185×</b></td></tr>
+</table>
+<br/>
+<div style="margin-top:10px"></div>
+<ul class="fragment appear">
+<li>the error path of <code>expected</code> costs the <b>same</b> as the happy path</li>
+
+</ul>
+<ul class="fragment appear">
+<li>the error path of <code>throw</code> is a full stack unwind, and its latency is
+<b>not bounded</b>: a real-time system cannot budget for it</li>
+
+</ul>
+</section>
+<section id="slide-org0c44287">
+<h4 id="org0c44287">and what they cost even when <b>never</b> thrown</h4>
+<div style="margin-top:60px"></div>
+<p style="text-align:center">
+firmware-level evidence (<code>readelf</code>, <code>nm</code> on the two ARM images):
+</p>
+<table style="font-size: 0.8em;">
+<tr><th></th><th>classic firmware</th><th>modern firmware</th></tr>
+<tr><td><b>.ARM.extab</b> (unwind data)</td><td>128 B</td>
+    <td class="delta-good">0</td></tr>
+<tr><td><b>.ARM.exidx</b> (unwind index)</td><td>232 B</td>
+    <td class="delta-good">8 B (sentinel)</td></tr>
+<tr><td><b>_Unwind / __cxa symbols</b></td><td>46</td>
+    <td class="delta-good">0</td></tr>
+<tr><td><b>demo 04 .text alone</b></td><td>993 B</td>
+    <td class="delta-good">252 B (−75%)</td></tr>
+</table>
+<br/>
+<div style="margin-top:10px"></div>
+<p style="text-align:center">
+the unwinder, the tables, <code>std::string</code> for <code>what()</code>, all on board,
+whether or not a single <code>throw</code> ever executes
+</p>
+</section>
+<section id="slide-org8a797bd">
+<h3 id="org8a797bd">the modern way: <code>tl::expected</code></h3>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >enum class FrameError : std::uint8_t {
+    BadSync, BadLength, BadChecksum, OutOfRange,
+};
+
+// The full set of outcomes is part of the SIGNATURE:
+[[nodiscard]] tl::expected&lt;Frame, FrameError&gt;
+parse_frame(std::span&lt;const std::uint8_t&gt; bytes) {
+    return check_length(bytes)      // each step: expected&lt;span, FrameError&gt;
+        .and_then(check_sync)
+        .and_then(check_checksum)
+        .and_then(decode);          // reads top to bottom, CCN = 1
+}
+
+parse_frame(frame)
+    .map([&amp;](const Frame&amp; f)  { ++stats.accepted; stats.sum += f.reading; })
+    .map_error([&amp;](FrameError) { ++stats.rejected; });
+</code></pre>
+</div>
+
+<div style="margin-top:10px"></div>
+<ul class="fragment appear">
+<li>callers <b>cannot silently ignore</b> the error: <code>[[nodiscard]]</code> + the type system</li>
+
+</ul>
+<ul class="fragment appear">
+<li>measured CCN (<code>lizard</code>): classic <code>parse_frame</code> <b>6</b> → modern <b>1</b></li>
+
+</ul>
+</section>
+<section id="slide-org8bd9388">
+<h4 id="org8bd9388">the C++23 exit ramp</h4>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >// today (C++20):
+#include &lt;tl/expected.hpp&gt;
+tl::expected&lt;Frame, FrameError&gt; parse_frame(...);
+
+// the day you switch to C++23:        [C++23]
+#include &lt;expected&gt;
+std::expected&lt;Frame, FrameError&gt; parse_frame(...);
+</code></pre>
+</div>
+
+<p style="text-align:center">
+same API, same monadic operations (<code>and_then</code> / <code>transform</code> / <code>or_else</code>);
+<code>tl::expected</code> is a polyfill you <b>retire</b>, not a dependency you keep
+</p>
+
+<p style="text-align:center" class="fragment appear">
+(compile time is a non-argument here: 148 ms vs 167 ms on demo 04)
+</p>
+</section>
+<section id="slide-org70283d6">
+<h3 id="org70283d6">the open question</h3>
+<div style="margin-top:60px"></div>
+<p style="text-align:center">
+<b>do embedded systems need exceptions at all?</b>
+</p>
+
+<ul>
+<li class="fragment appear">the industry default says no: <code>-fno-exceptions</code> everywhere, and everything
+in this talk works without them</li>
+<li class="fragment appear">but: Khalil Estell, <b>"C++ Exceptions for Smaller Firmware"</b> (CppCon 2024
+keynote) shows tuned exception handling can be <b>smaller</b> than error-code
+checking; the unwinder cost is an implementation artifact, not a law</li>
+<li class="fragment appear">and Herb Sutter's P0709 ("zero-overhead deterministic exceptions:
+<code>throw</code> as values") would dissolve the dichotomy, but it has not landed</li>
+
+</ul>
+
+<p style="text-align:center" class="fragment appear">
+<b>my position:</b> errors that are <i>normal outcomes</i> (timeouts, bad input, lost
+frames) get <code>expected</code>, today. Whether <code>throw</code> still earns a place for the
+<i>truly exceptional</i> (corrupted state, broken invariants) is a per-system
+decision: <b>measure on your target first; the question stays open</b>
+</p>
+</section>
+</section>
+<section>
+<section id="slide-org1acb1fb">
+<h2 id="org1acb1fb"><span class="act-label act-label--wins">Act III</span> :: small wins that compound</h2>
+<div style="margin-top:180px"></div>
+<p style="text-align:center">
+The One with the quick wins batch
+</p>
+</section>
+<section id="slide-org727e8b7">
+<h3 id="org727e8b7"><code>consteval</code> → the work simply isn't there anymore (demo 05)</h3>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >// classic: 1 KB table in RAM + boot-time init + a flag checked every call
+std::uint32_t crc_table[256];   // .bss — garbage until init runs
+bool table_ready = false;
+
+std::uint32_t crc32_compute(std::span&lt;const std::uint8_t&gt; data) {
+    if (!table_ready) crc32_init();    // runtime branch, every call
+    /* ... */
+}
+</code></pre>
+</div>
+
+<div class="org-src-container">
+
+<pre><code class="cpp" >// modern: consteval CANNOT fall back to runtime — table is in flash
+consteval std::array&lt;std::uint32_t, 256&gt; make_crc32_table() { /* ... */ }
+inline constexpr auto crc_table = make_crc32_table();
+
+static_assert(crc_table[1]   == 0x77073096u);   // verified before it ships
+static_assert(crc32_compute(/* "abc" */) == 0x352441C2u);
+</code></pre>
+</div>
+</section>
+<section id="slide-orga2ffd1c">
+<h4 id="orga2ffd1c">the numbers: demo 05</h4>
+<div style="margin-top:60px"></div>
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic</th><th>modern</th><th>delta</th></tr>
+<tr><td><b>.bss (RAM)</b></td><td>1025 B</td><td>8 B</td>
+    <td class="delta-good"><b>−1017 B</b></td></tr>
+<tr><td><b>.text + .rodata (flash)</b></td><td>136 B</td><td>1088 B</td>
+    <td>table moved to flash</td></tr>
+<tr><td><b>boot-time init</b></td><td>~128k cycles</td><td>0</td>
+    <td class="delta-good"><b>gone</b></td></tr>
+</table>
+<br/>
+
+<div style="margin-top:10px"></div>
+<p style="text-align:center">
+RAM → flash, init function → gone, "is it ready?" hazard → <b>impossible by construction</b>
+</p>
+</section>
+<section id="slide-orgd366da5">
+<h4 id="orgd366da5"><code>constinit</code>: the forgotten sibling</h4>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >// mutable runtime state — but its INITIALIZER is compile-time checked
+struct CrcStats {
+    std::uint32_t frames_checked;
+    std::uint32_t last_crc;
+};
+constinit CrcStats stats{0u, 0u};
+</code></pre>
+</div>
+
+<div style="margin-top:10px"></div>
+<ul>
+<li><code>constexpr</code> → constant, immutable</li>
+<li><code>consteval</code> → <i>function</i> must run at compile time</li>
+<li><p>
+<code>constinit</code> → <i>variable</i> initialized at compile time, <b>mutable</b> at runtime
+</p>
+
+<div style="margin-top:20px"></div></li>
+
+</ul>
+<p style="text-align:center" class="fragment appear">
+static-init-order fiasco → ruled out by a keyword, not by a code review
+</p>
+</section>
+<section id="slide-org9d4e2aa">
+<h3 id="org9d4e2aa"><code>std::bit_cast</code> → type punning, verified (demo 06)</h3>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >// classic: memcpy + runtime assert — checked when it RUNS, debug only
+void serialize(const SensorPacket&amp; pkt, std::span&lt;std::uint8_t&gt; out) {
+    assert(sizeof(SensorPacket) == packet_size);  // in .text, too late
+    std::memcpy(out.data(), &amp;pkt, packet_size);
+}
+</code></pre>
+</div>
+
+<div class="org-src-container">
+
+<pre><code class="cpp" >// modern: the wire contract is enforced by the COMPILER
+static_assert(sizeof(SensorPacket) == packet_size);
+static_assert(offsetof(SensorPacket, reading) == 2);
+static_assert(std::is_trivially_copyable_v&lt;SensorPacket&gt;);
+static_assert(std::endian::native == std::endian::little);
+
+constexpr PacketBytes serialize(const SensorPacket&amp; pkt) {
+    return std::bit_cast&lt;PacketBytes&gt;(pkt);      // UB-free, constexpr
+}
+static_assert(float_to_bits(1.0f) == 0x3F800000u);  // IEEE-754, checked
+</code></pre>
+</div>
+
+<p style="text-align:center">
+<code>.text</code>: 90 vs 92 B; all of that checking ships <b>zero bytes</b>
+</p>
+</section>
+<section id="slide-org5d8a2da">
+<h3 id="org5d8a2da">ranges → pipelines with names (demo 07)</h3>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >// classic: 3 loops, 2 intermediate heap vectors, intent buried
+std::vector&lt;float&gt; filtered;    /* loop 1: filter   */
+std::vector&lt;float&gt; calibrated;  /* loop 2: calibrate */
+std::vector&lt;float&gt; output;      /* loop 3: window    */
+</code></pre>
+</div>
+
+<div class="org-src-container">
+
+<pre><code class="cpp" >// modern: range-v3 today, std::ranges in C++23
+auto calibrated_view = raw
+    | views::filter(in_range)        // lazy — no buffer
+    | views::transform(calibrate);   // lazy — no buffer
+
+auto averages = std::span(calibrated.data(), n)
+    | views::sliding(window)
+    | views::transform(window_avg);  // written into caller storage
+
+// and algorithms instead of hand-rolled loops:
+Stats{*ranges::min_element(values), *ranges::max_element(values),
+      ranges::accumulate(values, 0.0f) / count,
+      ranges::count_if(values, is_saturated)};
+</code></pre>
+</div>
+</section>
+<section id="slide-orgfaaba6b">
+<h4 id="orgfaaba6b">the numbers: demo 07</h4>
+<div style="margin-top:60px"></div>
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic</th><th>modern</th><th>delta</th></tr>
+<tr><td><b>.text (ARM, firmware profile)</b></td><td>1078 B</td><td>558 B</td>
+    <td class="delta-good"><b>−48%</b></td></tr>
+<tr><td><b>heap buffers</b></td><td>3 vectors</td><td>0</td>
+    <td class="delta-good"><b>gone</b></td></tr>
+<tr><td><b>avg CCN (lizard)</b></td><td>7.5</td><td>2.8</td>
+    <td class="delta-good"><b>−63%</b></td></tr>
+<tr><td><b>compile time (host −O2)</b></td><td>239 ms</td><td>451 ms</td>
+    <td class="delta-bad"><b>1.9×</b></td></tr>
+</table>
+<br/>
+
+<ul class="fragment appear">
+<li>yes, <code>std::vector</code> machinery costs more flash than range-v3 pipelines here</li>
+
+</ul>
+<ul class="fragment appear">
+<li>compile time is the honest tax: one-time, mitigable (PCH), and it
+<b>drops with</b> [C++23] <code>std::ranges</code> (<code>views::slide</code>, <code>ranges::fold_left</code>)</li>
+
+</ul>
+</section>
+<section id="slide-orgd264b71">
+<h3 id="orgd264b71">the heap you didn't need (demo 08)</h3>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >// classic: unbounded growth, realloc, fragmentation, bad_alloc
+std::vector&lt;Event&gt; events;
+events.push_back(e);            // may move the whole log, may throw
+</code></pre>
+</div>
+
+<div class="org-src-container">
+
+<pre><code class="cpp" >// classic, disciplined: reserve the budget up front
+std::vector&lt;Event&gt; events;
+events.reserve(64);             // no realloc... until event #65
+events.push_back(e);            // past the budget: silently grows (or throws)
+</code></pre>
+</div>
+
+<p style="text-align:center" class="fragment appear">
+<code>reserve</code> is the right first step, but the budget is a runtime argument the
+<b>type forgets</b>, the storage is still on the heap, and overflow is still silent
+</p>
+</section>
+<section id="slide-orga4e62d7">
+<h4 id="orga4e62d7">the modern way: the budget IS the type</h4>
+<div style="margin-top:60px"></div>
+<div class="org-src-container">
+
+<pre><code class="cpp" >// modern: capacity is a compile-time budget; storage inside the object
+template &lt;typename T, std::size_t Capacity&gt;
+    requires std::is_trivially_copyable_v&lt;T&gt;
+class FixedVector {
+    [[nodiscard]] constexpr bool push_back(const T&amp; value);  // failure = value
+    std::array&lt;T, Capacity&gt; storage_{};
+    std::size_t size_{0};
+};
+
+static_assert(sizeof(EventLog) ==
+              log_capacity * sizeof(Event) + sizeof(std::size_t));
+</code></pre>
+</div>
+
+<div style="margin-top:10px"></div>
+<ul class="fragment appear">
+<li><code>.text</code>: 40 vs 38 B; the <b>abstraction is free</b>, the determinism is the win</li>
+
+</ul>
+<ul class="fragment appear">
+<li>the memory budget is <b>readable in the type</b> and provable at link time</li>
+
+</ul>
+<ul class="fragment appear">
+<li>[C++26] <code>std::inplace_vector</code> (P0843) standardizes exactly this</li>
+
+</ul>
+</section>
+<section id="slide-org1cd7cf6">
+<h4 id="org1cd7cf6">remember the spoiler?</h4>
+<div style="margin-top:60px"></div>
+<p style="text-align:center">
+modern firmware <code>.bss</code> was <b>+3800 B bigger</b>: now you know why
+</p>
+
+<div style="margin-top:20px"></div>
+<ul>
+<li>SoA particle pool: 4356 B, event log: 520 B, <b>declared</b>, in <code>.bss</code></li>
+<li>the classic firmware allocates the same data on the <b>heap at runtime</b></li>
+<li>one shows up in the linker map; the other shows up in a 3am core dump</li>
+
+</ul>
+
+<p style="text-align:center" class="fragment appear">
+<b>static memory isn't a cost; it's the same memory, made visible</b>
+</p>
+</section>
+<section id="slide-org77443bb">
+<h3 id="org77443bb">more small wins: no demo needed</h3>
+<div style="margin-top:60px"></div>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides" style="font-size:0.65em">
+
+
+<colgroup>
+<col  class="org-left" />
+
+<col  class="org-left" />
+
+<col  class="org-left" />
+</colgroup>
+<thead>
+<tr>
+<th scope="col" class="org-left">feature</th>
+<th scope="col" class="org-left">replaces</th>
+<th scope="col" class="org-left">win</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td class="org-left">designated initializers</td>
+<td class="org-left">positional brace soup</td>
+<td class="org-left"><code>.alpha = 0.3f</code> reads like docs</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>operator&lt;=&gt;</code></td>
+<td class="org-left">6 hand-written comparisons</td>
+<td class="org-left">one line, consistent by construction</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>std::span</code></td>
+<td class="org-left">pointer + size pairs</td>
+<td class="org-left">bounds in the type, no decay</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>std::string_view</code></td>
+<td class="org-left"><code>const char*</code> + <code>strlen</code></td>
+<td class="org-left">length carried, constexpr</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>[[nodiscard]]</code></td>
+<td class="org-left">ignored error codes</td>
+<td class="org-left">compiler-enforced checking</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>enum class</code> + <code>using enum</code></td>
+<td class="org-left"><code>#define</code> constants</td>
+<td class="org-left">scoped, typed, readable switches</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>std::source_location</code></td>
+<td class="org-left"><code>__FILE__</code> / <code>__LINE__</code> macros</td>
+<td class="org-left">type-safe, default-argument capture</td>
+</tr>
+
+<tr>
+<td class="org-left">brace init <code>{}</code></td>
+<td class="org-left">silent narrowing</td>
+<td class="org-left">truncation = compile error</td>
+</tr>
+
+<tr>
+<td class="org-left"><code>if constexpr</code></td>
+<td class="org-left"><code>#ifdef</code> ladders</td>
+<td class="org-left">both branches type-checked</td>
+</tr>
+</tbody>
+</table>
+
+<div style="margin-top:10px"></div>
+<p style="text-align:center" class="fragment appear">
+<b>pattern:</b> each one moves a bug class from runtime to compile time, at zero cost
+</p>
+</section>
+</section>
+<section>
+<section id="slide-org7521040">
+<h2 id="org7521040">the adoption path</h2>
+<div style="margin-top:60px"></div>
+<p>
+<b>start tomorrow (zero risk):</b>
+</p>
+
+<ol>
+<li class="fragment appear">brace init, designated initializers, <code>enum class</code>, <code>[[nodiscard]]</code></li>
+<li class="fragment appear"><code>constexpr</code> / <code>consteval</code> tables → move data to flash, delete init code</li>
+<li class="fragment appear"><code>std::array</code> + <code>std::span</code> → kill pointer+size pairs and raw arrays</li>
+<li class="fragment appear"><code>concepts</code> on your templates → readable contracts, readable errors</li>
+<li class="fragment appear"><code>tl::expected</code> on new error paths → values, not unwinds</li>
+<li class="fragment appear">closed-set hierarchies → <code>std::variant</code> + <code>std::visit</code></li>
+
+</ol>
+
+<p class="fragment appear">
+<b>then, where profiling says it matters:</b> SoA layouts, fixed-capacity
+containers, variadic wiring, and re-measure after every step
+</p>
+</section>
+<section id="slide-orgf05181b">
+<h3 id="orgf05181b">rules of thumb</h3>
+<div style="margin-top:60px"></div>
+<table style="font-size: 0.8em;">
+<tr><th>question</th><th>reach for</th></tr>
+<tr><td>set of types open? (plugins, ABI)</td><td>virtual; still the right tool</td></tr>
+<tr><td>set of types closed?</td><td>std::variant + std::visit</td></tr>
+<tr><td>dispatch known at compile time?</td><td>concepts + templates</td></tr>
+<tr><td>error is a frequent outcome?</td><td>expected; never throw</td></tr>
+<tr><td>error is truly exceptional?</td><td>the open question; measure first</td></tr>
+<tr><td>size known or boundable at build?</td><td>std::array / FixedVector, not vector</td></tr>
+<tr><td>hot loop over many objects?</td><td>values first (AoS), then SoA; before threads</td></tr>
+</table>
+</section>
+</section>
+<section>
+<section id="slide-org2dfc367">
+<h2 id="org2dfc367">closing</h2>
+<div class="outline-text-2" id="text-org2dfc367">
+</div>
+</section>
+<section id="slide-orgcbf4bbc">
+<h3 id="orgcbf4bbc">TL;DR</h3>
+<div style="margin-top:60px"></div>
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic design</th><th>modern design</th></tr>
+<tr><td><b>dispatch</b></td><td>vtable at runtime</td>
+    <td class="delta-good">variant/concepts at compile time</td></tr>
+<tr><td><b>memory</b></td><td>heap, discovered at runtime</td>
+    <td class="delta-good">stack/.bss, visible at link time</td></tr>
+<tr><td><b>errors</b></td><td>exceptions as control flow</td>
+    <td class="delta-good">expected; errors are values</td></tr>
+<tr><td><b>validation</b></td><td>assert when it runs</td>
+    <td class="delta-good">static_assert before it ships</td></tr>
+<tr><td><b>firmware .text</b></td><td>19248 B</td>
+    <td class="delta-good">6140 B (−68%)</td></tr>
+<tr><td><b>behaviour</b></td><td colspan="2" style="text-align:center">identical, proven by equivalence tests</td></tr>
+</table>
+<br/>
+
+<p style="text-align:center" class="fragment appear">
+move the work to <b>compile time</b>; runtime is the most expensive place to find out
+</p>
+</section>
+<section id="slide-org602f53e">
+<h3 id="org602f53e">references</h3>
+<div style="margin-top:60px"></div>
+<ul style="font-size:0.65em">
+<li>N. Josuttis: <i>Rethink Polymorphism in C++</i>, C++ on Sea 2025 (github.com/philsquared/cpponsea2025-slides)</li>
+<li>V. Romeo: <i>More Speed and Simplicity</i>, CppCon 2025 (github.com/CppCon/CppCon2025)</li>
+<li>K. Estell: <i>C++ Exceptions for Smaller Firmware</i>, CppCon 2024 keynote</li>
+<li>H. Sutter: P0709 <i>Zero-overhead deterministic exceptions</i>; <i>De-fragmenting C++</i>, CppCon 2019</li>
+<li>S. Parent: <i>Better Code: Runtime Polymorphism</i>, NDC London 2017</li>
+<li>K. Iglberger: <i>Breaking Dependencies: Type Erasure</i>, CppCon 2021+</li>
+<li>B. Deane, J. Turner: <i>constexpr ALL the Things!</i>, CppCon 2017</li>
+<li>M. Acton: <i>Data-Oriented Design and C++</i>, CppCon 2014</li>
+<li>P0843 <code>std::inplace_vector</code> [C++26]; <code>std::expected</code> [C++23]; <code>std::ranges</code> [C++20/23]</li>
+<li>blogs: herbsutter.com, modernescpp.com (R. Grimm), cppstories.com</li>
+
+</ul>
+</section>
+<section id="slide-orga69d603">
+<h3 id="orga69d603">resources</h3>
+<div style="margin-top:60px"></div>
+<ul>
+<li><p>
+<b>this repo:</b> all 9 demo pairs, equivalence tests, benchmarks, Dockerfile
+</p>
+
+<p>
+→  <a href="https://github.com/amuela-verisure/talk-202606-madrid">https://github.com/amuela-verisure/talk-202606-madrid</a>
+</p></li>
+
+<li><b>build it yourself:</b></li>
+
+</ul>
+<div class="org-src-container">
+
+<pre><code class="bash" >docker build -t cpp-design-talk .
+docker run --rm -it cpp-design-talk
+cmake --preset host-debug
+cmake --build --preset host-debug
+ctest --preset host-debug          # 9/9 equivalence tests pass
+./build/host-release/bench_expected
+</code></pre>
+</div>
+
+<ul>
+<li><b>firmware, sizes and QEMU:</b></li>
+
+</ul>
+<div class="org-src-container">
+
+<pre><code class="bash" >cmake --preset arm-cortexm4
+cmake --build --preset arm-cortexm4
+scripts/compare_size.sh build/arm
+qemu-system-arm -machine mps2-an386 -nographic -semihosting \
+    -kernel build/arm/firmware_modern
+</code></pre>
+</div>
+</section>
+<section id="slide-org8688c8f">
+<h3 id="org8688c8f">thank you</h3>
+<div style="margin-top:240px"></div>
+<div style="text-align:center;font-size:6.0em">🙇‍♂️</div>
+</section>
+</section>
+</div>
+</div>
+<script src="./reveal.js/dist/reveal.js"></script>
+<script src="./reveal.js/dist/plugin/highlight.js"></script>
+<script src="./reveal.js/dist/plugin/notes.js"></script>
+<script>
+// Full list of configuration options available here:
+// https://github.com/hakimel/reveal.js#configuration
+Reveal.initialize({
+
+controls: true,
+progress: true,
+history: false,
+center: true,
+slideNumber: 'c',
+rollingLinks: false,
+keyboard: true,
+mouseWheel: false,
+fragmentInURL: false,
+hashOneBasedIndex: false,
+pdfSeparateFragments: true,
+overview: true,
+
+transition: 'slide',
+transitionSpeed: 'default',
+
+// Plugins with reveal.js 4.x and later
+plugins: [ RevealHighlight, RevealNotes ],
+
+// Optional libraries used to extend reveal.js
+dependencies: [
+]
+
+});
+</script>
+</body>
+</html>

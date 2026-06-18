@@ -1,0 +1,921 @@
+# -*- mode: org; org-reveal-root: "./reveal.js"; -*-
+#+TITLE: The price of runtime: Modern C++ design
+#+SUBTITLE: Modern C++ design for Systems That Can't Afford Surprises
+#+AUTHOR: Alfredo Muela
+#+DATE: 2026
+#+OPTIONS: toc:nil num:nil reveal_title_slide:nil timestamp:nil
+#+REVEAL_ROOT: ./reveal.js
+#+REVEAL_THEME: white
+#+REVEAL_HLEVEL: 1
+#+REVEAL_INIT_OPTIONS: slideNumber:true, center:false
+#+REVEAL_TITLE_SLIDE: <div class="cover-banner"></div><div class="cover-text"><h1>%t</h1><h2>%a</h2><p class="date">%d</p><img class="cover-logo" src="./img/logo.png" alt="Verisure"/></div>
+#+REVEAL_TRANS: slide
+#+REVEAL_VERSION: 6
+#+REVEAL_PLUGINS: (highlight notes)
+#+REVEAL_EXTRA_CSS: ./verisure.css
+#+REVEAL_HEAD_PREAMBLE:
+
+* things that will happen in the talk
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+- we'll question habits we all learned as "good OOP design"
+- we'll see lots of code and lots of measured numbers
+- every number comes from the companion repo, reproducible
+- examples are embedded-flavoured; the design rules are not
+- we'll have questions as we go, and defer some if needed
+- we'll leave with one deliberately *unanswered* question
+* about me
+#+ATTR_HTML: :style text-align:center
+Alicante's office is ready!
+#+BEGIN_EXPORT html
+<div class="side-by-side" style="justify-content:center;">
+  <div style="flex:none;"><img src="./img/AlicanteOffice-03.jpeg" style="max-height:400px;" /></div>
+  <div style="flex:none;"><img src="./img/AlicanteOffice-01.jpeg" style="max-height:400px;" /></div>
+</div>
+#+END_EXPORT
+
+* the starting point
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+the C++ we were all taught to write:
+
+#+BEGIN_SRC cpp
+class Shape {                       // base class
+public:
+    virtual ~Shape() = default;     // virtual destructor
+    virtual float area() const = 0; // virtual interface
+};
+
+std::vector<std::unique_ptr<Shape>> scene;       // heap, everywhere
+scene.push_back(std::make_unique<Circle>(1.0f)); // one alloc per object
+
+if (!sensor.init()) throw InitError{};           // errors = exceptions
+#+END_SRC
+
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+textbook-correct in 2005, but is it still the *default* in 2026?
+
+** the claim
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_QUOTE
+Modern C++20 lets you move dispatch, allocation, error handling and
+validation from *runtime* to *compile time*, and the result is smaller,
+faster, and harder to get wrong.
+#+END_QUOTE
+
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+/born from embedded constraints, but it's just good design, anywhere/
+
+** the experiment
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+- *9 demos:* each one a side-by-side pair: /classic/ vs /modern/ design
+- *classic:* virtual + heap + exceptions + raw loops
+- *modern:* concepts, =variant=, =expected=, ranges, stack, with =-fno-exceptions -fno-rtti=
+- *equivalence tests* prove both produce identical results
+- *targets:* x86-64 host (GCC 13.3) and ARM Cortex-M4 (QEMU mps2-an386, =arm-none-eabi-gcc 13.2=)
+- *flags:* =-Os -flto -DNDEBUG= for all firmware numbers
+- *repo available* → every number reproducible, don't take my word
+
+** spoiler alert
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+ATTR_HTML: :style text-align:center
+same 9 features, same observable behaviour, full firmware build:
+#+BEGIN_EXPORT html
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic</th><th>modern</th><th>delta</th></tr>
+<tr><td><b>.text (flash)</b></td><td>19248 B</td><td>6140 B</td>
+    <td class="delta-good"><b>−68%</b></td></tr>
+<tr><td><b>unwinder symbols</b></td><td>46</td><td>0</td>
+    <td class="delta-good"><b>gone</b></td></tr>
+<tr><td><b>heap (malloc on board)</b></td><td>yes</td><td>no</td>
+    <td class="delta-good"><b>gone</b></td></tr>
+</table>
+<br/>
+#+END_EXPORT
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+(modern =.bss= is *bigger*: +3800 B; its memory is *visible at link time*
+instead of hidden in the heap; we'll come back to this)
+
+** methodology
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+| tool                   | what it measures                         |
+|------------------------+------------------------------------------|
+| =arm-none-eabi-size=     | .text, .data, .bss per section           |
+| =nm= + =c++filt=           | malloc, vtables, RTTI, unwinder          |
+| =readelf -S=             | =.ARM.extab= / =.ARM.exidx= exception tables |
+| =lizard=                 | cyclomatic complexity (CCN)              |
+| =std::chrono= benchmarks | hot-path cost (host, =-Os -flto=)          |
+| QEMU =mps2-an386=        | both firmwares actually run              |
+
+* @@html:<span class="act-label act-label--core">Act I</span>@@ :: OOP, use and abuse
+#+REVEAL_HTML: <div style="margin-top:180px"></div>
+#+ATTR_HTML: :style text-align:center
+The One where =virtual= stops being the default answer
+
+** what classic OOP actually costs
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+the textbook shape hierarchy:
+
+#+BEGIN_SRC cpp
+class Shape {
+public:
+    virtual ~Shape() = default;
+    [[nodiscard]] virtual float area() const = 0;
+    virtual void scale(float factor) = 0;
+};
+class Circle final : public Shape { /* ... */ };
+
+using Scene = std::vector<std::unique_ptr<Shape>>;  // ptr per shape
+
+float total_area(const Scene& scene) {
+    float sum = 0.0f;
+    for (const auto& shape : scene)
+        sum += shape->area();   // indirect call through the vtable
+    return sum;
+}
+#+END_SRC
+*** the bill, itemised
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+measured on demo 01 (=nm= on the classic object file):
+
+- =_Znwj= / =_ZdlPv= → *operator new/delete*: one heap allocation per shape
+- three =_ZTV...= vtables + two =__cxxabiv1= type_info vtables in flash
+- every =area()= → *indirect branch* the optimizer cannot inline through
+- objects scattered on the heap → pointer chasing, cold caches
+- *intrusive*: every shape must inherit from =Shape= to participate
+
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+and we pay all of this even when the set of shapes *never changes*
+
+*** the key question
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+ATTR_HTML: :style text-align:center
+is your set of types *open* or *closed*?
+
+#+ATTR_REVEAL: :frag (appear appear)
+- *open set* (plugins, unknown future types, ABI boundary) → =virtual= is the right tool
+- *closed set* (you can name every alternative today) → you are overpaying
+
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+most application and firmware code is *closed-set* code
+
+** the modern way: =std::variant= + =std::visit=
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+// Plain value types — no base class, no virtual, no intrusion.
+struct Circle {
+    float radius;
+    [[nodiscard]] constexpr float area() const
+    { return pi_v * radius * radius; }
+    constexpr void scale(float f) { radius *= f; }
+};
+struct Rectangle { /* ... */ };
+struct Triangle  { /* ... */ };
+
+// The closed set of alternatives IS the polymorphism.
+using Shape = std::variant<Circle, Rectangle, Triangle>;
+using Scene = std::array<Shape, 6>;     // contiguous, on the stack
+
+float total_area(const Scene& scene) {
+    float sum = 0.0f;
+    for (const auto& shape : scene)
+        sum += std::visit([](const auto& s) { return s.area(); }, shape);
+    return sum;
+}
+#+END_SRC
+
+*** the numbers: demo 01
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_EXPORT html
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic</th><th>modern</th><th>delta</th></tr>
+<tr><td><b>.text (ARM, firmware profile)</b></td><td>1320 B</td><td>232 B</td>
+    <td class="delta-good"><b>−82%</b></td></tr>
+<tr><td><b>heap allocations per scene</b></td><td>7</td><td>0</td>
+    <td class="delta-good"><b>−7</b></td></tr>
+<tr><td><b>vtables + type_info</b></td><td>5</td><td>0</td>
+    <td class="delta-good"><b>gone</b></td></tr>
+</table>
+<br/>
+#+END_EXPORT
+
+#+REVEAL_HTML: <div style="margin-top:10px"></div>
+#+ATTR_REVEAL: :frag appear
+- =sizeof(Shape)= = largest alternative + index → flat, cache-friendly array
+#+ATTR_REVEAL: :frag appear
+- non-intrusive: any type with =area()= / =scale()= can join the variant
+#+ATTR_REVEAL: :frag appear
+- compile time (host, =-O2=): classic 276 ms vs modern *82 ms*; =<memory>= + =<vector>= are not free either
+
+*** go deeper
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+ATTR_HTML: :style text-align:center
+this is exactly the redesign Nico Josuttis walks through in *"Rethink Polymorphism in C++"*, C++ on Sea 2025
+
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+his punchline: variant-based designs are not a trick, they are *value semantics doing polymorphism's job*
+
+** when the dispatch is static: concepts
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+classic: an interface class, even when every call site knows the type
+
+#+BEGIN_SRC cpp
+class IFilter {
+public:
+    virtual ~IFilter() = default;
+    virtual void reset() = 0;
+    [[nodiscard]] virtual float process(float sample) = 0;
+};
+
+float run_filter(IFilter& filter, std::span<const float> samples) {
+    filter.reset();
+    float last = 0.0f;
+    for (float s : samples)
+        last = filter.process(s);   // indirect call, EVERY sample
+    return last;
+}
+#+END_SRC
+
+*** the modern way: the concept is the interface
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+template <typename F>
+concept Filter = requires(F f, float sample) {
+    { f.reset() }          -> std::same_as<void>;
+    { f.process(sample) }  -> std::same_as<float>;
+};
+
+struct LowPass {
+    float alpha;
+    float state{0.0f};
+    constexpr void reset() { state = 0.0f; }
+    [[nodiscard]] constexpr float process(float s)
+    { state += alpha * (s - state); return state; }
+};
+static_assert(Filter<LowPass>);   // contract checked HERE
+
+template <Filter F>   // generic, specialized per filter, fully inlined
+constexpr float run_filter(F& filter, std::span<const float> samples);
+#+END_SRC
+
+#+ATTR_HTML: :style text-align:center
+no vtable, no virtual destructor, and it runs in =constexpr= too
+
+*** what you get for free
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_EXPORT html
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic</th><th>modern</th><th>delta</th></tr>
+<tr><td><b>.text (ARM, firmware profile)</b></td><td>400 B</td><td>128 B</td>
+    <td class="delta-good"><b>−68%</b></td></tr>
+<tr><td><b>indirect calls in hot loop</b></td><td>1 per sample</td><td>0</td>
+    <td class="delta-good"><b>inlined</b></td></tr>
+</table>
+<br/>
+#+END_EXPORT
+
+#+REVEAL_HTML: <div style="margin-top:10px"></div>
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+and when a type doesn't satisfy the contract:
+#+ATTR_REVEAL: :frag appear
+#+BEGIN_SRC sh
+error: static assertion failed
+note: the required expression 'f.process(sample)' is invalid
+#+END_SRC
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+the compiler names the missing method, versus a NULL fptr HardFault at 3am (oh, the drama!)
+
+** the observer pattern, revisited (demo 09)
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+classic: type erasure taken for granted
+
+#+BEGIN_SRC cpp
+class Subject {
+public:
+    using Handler = std::function<void(const Event&)>;
+    void subscribe(Handler h) { handlers_.push_back(std::move(h)); }
+    void notify(const Event& e) const {
+        for (const auto& h : handlers_)
+            h(e);              // type-erased indirect call, per observer
+    }
+private:
+    std::vector<Handler> handlers_;   // heap + possible alloc per capture
+};
+#+END_SRC
+
+*** the modern way: variadic pack, fold expression
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+template <typename H>
+concept EventHandler = std::invocable<H&, const Event&>;
+
+template <EventHandler... Handlers>
+class Subject {
+public:
+    explicit constexpr Subject(Handlers... handlers)
+        : handlers_{std::move(handlers)...} {}
+
+    constexpr void notify(const Event& event) {
+        std::apply([&](auto&... h) { (h(event), ...); }, handlers_);
+    }                              //  ^^^ fold: unrolled, inlined, in order
+private:
+    std::tuple<Handlers...> handlers_;   // by value, zero heap
+};
+
+Subject subject{on_alarm, on_stats};     // CTAD — no template noise
+#+END_SRC
+
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+honest trade-off: the observer set is *fixed at compile time*;
+if your wiring is known at build time (most of it is), stop paying for runtime flexibility
+
+** data layout is design too: an evolution (demo 03)
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+stage 1: where most codebases start
+
+#+BEGIN_SRC cpp
+class IParticle {
+public:
+    virtual ~IParticle() = default;
+    virtual void update(float dt) = 0;
+    /* ... */
+};
+class PointParticle final : public IParticle { /* x, y, vx, vy */ };
+
+std::vector<std::unique_ptr<IParticle>> particles;   // ptr per particle
+
+void update(auto& particles, float dt) {
+    for (auto& p : particles)
+        p->update(dt);    // pointer chase + vtable call, per particle
+}
+#+END_SRC
+
+#+ATTR_HTML: :style text-align:center
+N heap allocations, N vtable pointers, objects scattered across the heap
+
+*** stage 2: drop the base class (Array of Structs)
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+struct Particle {              // a VALUE — no base class, no vtable
+    float x, y, vx, vy;
+    std::uint32_t id;
+    bool alive;                // + 3 bytes padding
+};
+std::vector<Particle> particles;          // ONE allocation, contiguous
+
+void update(std::vector<Particle>& ps, float dt) {
+    for (auto& p : ps)
+        if (p.alive) {
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+        }
+}
+#+END_SRC
+
+#+ATTR_REVEAL: :frag appear
+- already the big win: no pointer chasing, no indirect calls, dense storage
+#+ATTR_REVEAL: :frag appear
+- remaining cost: each iteration drags =id=, =alive= and padding through the
+  cache to reach the four floats it needs
+
+*** stage 3: where it makes sense (Struct of Arrays)
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+struct Particles {                        // Struct of Arrays
+    std::array<float, max_particles> x, y, vx, vy;
+    std::array<std::uint8_t, max_particles> alive;
+    std::size_t count{};
+};
+
+void update(Particles& ps, float dt) {
+    for (std::size_t i = 0; i < ps.count; ++i) {
+        const float mask = ps.alive[i] != 0u ? 1.0f : 0.0f;
+        ps.x[i] += ps.vx[i] * dt * mask;  // dense floats, branchless,
+        ps.y[i] += ps.vy[i] * dt * mask;  // vectorizer-friendly
+    }
+}
+#+END_SRC
+
+#+ATTR_HTML: :style text-align:center
+cache lines carry *only* what the loop reads, and the capacity is a
+compile-time budget (=.bss=), not a heap surprise
+
+*** the numbers: the evolution, measured
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+4096 particles × 50000 update iterations, x86-64 host (speedup vs stage 1):
+#+BEGIN_EXPORT html
+<table style="font-size: 0.8em;">
+<tr><th>stage</th><th><code>-Os -flto</code></th><th><code>-O3 -march=native</code></th><th>ARM .text</th></tr>
+<tr><td>1: <code>vector&lt;unique_ptr&lt;IParticle&gt;&gt;</code></td>
+    <td>1×</td><td>1×</td><td>945 B</td></tr>
+<tr><td>2: <code>vector&lt;Particle&gt;</code> (AoS)</td>
+    <td class="delta-good"><b>~2×</b></td><td class="delta-good"><b>~2×</b></td>
+    <td class="delta-good">365 B</td></tr>
+<tr><td>3: Struct-of-Arrays (SoA)</td>
+    <td class="delta-good">~2× (≈ AoS)</td><td class="delta-good"><b>4.7–4.9×</b></td>
+    <td class="delta-good">276 B</td></tr>
+</table>
+<br/>
+#+END_EXPORT
+
+#+REVEAL_HTML: <div style="margin-top:10px"></div>
+#+ATTR_REVEAL: :frag appear
+- step 1→2 is *unconditional*: values instead of pointers always pays
+#+ATTR_REVEAL: :frag appear
+- step 2→3 pays where the vectorizer (or the cache) is in play; at =-Os=
+  it's noise: *measure your loop on your target* before restructuring
+#+ATTR_REVEAL: :frag appear
+- deep dive: V. Romeo, *"More Speed and Simplicity"*, CppCon 2025 Keynote
+
+** Act I :: summary
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_EXPORT html
+<table style="font-size: 0.8em;">
+<tr><th>habit</th><th>modern default</th><th>measured</th></tr>
+<tr><td>virtual hierarchy, closed set</td><td>std::variant + std::visit</td>
+    <td class="delta-good">.text −82%, heap 7→0</td></tr>
+<tr><td>interface class, static dispatch</td><td>concepts</td>
+    <td class="delta-good">.text −68%, inlined</td></tr>
+<tr><td>std::function observer list</td><td>variadic pack + fold</td>
+    <td class="delta-good">zero heap, zero erasure</td></tr>
+<tr><td>vector&lt;unique_ptr&lt;Base&gt;&gt; storage</td><td>evolve: AoS values, then SoA where hot</td>
+    <td class="delta-good">~2× always, ~5× vectorized</td></tr>
+</table>
+<br/>
+#+END_EXPORT
+
+#+REVEAL_HTML: <div style="margin-top:10px"></div>
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+=virtual= is a *specific tool* for open sets and ABI boundaries,
+not the default shape of every design
+
+* @@html:<span class="act-label act-label--power">Act II</span>@@ :: exceptional vs expected
+#+REVEAL_HTML: <div style="margin-top:180px"></div>
+#+ATTR_HTML: :style text-align:center
+The One where errors become *values*
+
+** how exceptions become control flow
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+ATTR_HTML: :style text-align:center
+a telemetry link where ~10% of frames arrive corrupted:
+
+#+BEGIN_SRC cpp
+Frame parse_frame(std::span<const std::uint8_t> bytes) {
+    if (bytes.size() != frame_size) throw BadLength{};
+    if (bytes[0] != sync_byte)      throw BadSync{};
+    if (bad_checksum(bytes))        throw BadChecksum{};
+    /* ... */
+}
+
+StreamStats process_stream(std::span<const std::uint8_t> bytes) {
+    for (/* each frame */) {
+        try {
+            const Frame f = parse_frame(frame_bytes);
+            ++stats.accepted;
+        } catch (const std::runtime_error&) {
+            ++stats.rejected;        // ← an EXPECTED, FREQUENT outcome
+        }
+    }
+}
+#+END_SRC
+
+#+ATTR_HTML: :style text-align:center
+a corrupted frame is not /exceptional/ on a radio link; it's *Tuesday*
+
+*** what every rejected frame costs
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+ATTR_HTML: :style text-align:center
+ns per frame, host x86-64, =-Os -flto= (measured, =bench_expected=):
+#+BEGIN_EXPORT html
+<table style="font-size: 0.8em;">
+<tr><th>corrupted frames</th><th>exceptions</th><th>tl::expected</th><th>ratio</th></tr>
+<tr class="row-good"><td>0%</td><td>2.2</td><td>1.7</td><td>1.3×</td></tr>
+<tr class="row-warn"><td>1%</td><td>9.4</td><td>1.4</td><td>6.6×</td></tr>
+<tr class="row-warn"><td>10%</td><td>57.4</td><td>1.2</td><td><b>47×</b></td></tr>
+<tr class="row-bad"><td>25%</td><td>126.6</td><td>1.2</td><td><b>103×</b></td></tr>
+<tr class="row-bad"><td>50%</td><td>429.4</td><td>2.3</td><td><b>185×</b></td></tr>
+</table>
+<br/>
+#+END_EXPORT
+#+REVEAL_HTML: <div style="margin-top:10px"></div>
+#+ATTR_REVEAL: :frag appear
+- the error path of =expected= costs the *same* as the happy path
+#+ATTR_REVEAL: :frag appear
+- the error path of =throw= is a full stack unwind, and its latency is
+  *not bounded*: a real-time system cannot budget for it
+
+*** and what they cost even when *never* thrown
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+ATTR_HTML: :style text-align:center
+firmware-level evidence (=readelf=, =nm= on the two ARM images):
+#+BEGIN_EXPORT html
+<table style="font-size: 0.8em;">
+<tr><th></th><th>classic firmware</th><th>modern firmware</th></tr>
+<tr><td><b>.ARM.extab</b> (unwind data)</td><td>128 B</td>
+    <td class="delta-good">0</td></tr>
+<tr><td><b>.ARM.exidx</b> (unwind index)</td><td>232 B</td>
+    <td class="delta-good">8 B (sentinel)</td></tr>
+<tr><td><b>_Unwind / __cxa symbols</b></td><td>46</td>
+    <td class="delta-good">0</td></tr>
+<tr><td><b>demo 04 .text alone</b></td><td>993 B</td>
+    <td class="delta-good">252 B (−75%)</td></tr>
+</table>
+<br/>
+#+END_EXPORT
+#+REVEAL_HTML: <div style="margin-top:10px"></div>
+#+ATTR_HTML: :style text-align:center
+the unwinder, the tables, =std::string= for =what()=, all on board,
+whether or not a single =throw= ever executes
+
+** the modern way: =tl::expected=
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+enum class FrameError : std::uint8_t {
+    BadSync, BadLength, BadChecksum, OutOfRange,
+};
+
+// The full set of outcomes is part of the SIGNATURE:
+[[nodiscard]] tl::expected<Frame, FrameError>
+parse_frame(std::span<const std::uint8_t> bytes) {
+    return check_length(bytes)      // each step: expected<span, FrameError>
+        .and_then(check_sync)
+        .and_then(check_checksum)
+        .and_then(decode);          // reads top to bottom, CCN = 1
+}
+
+parse_frame(frame)
+    .map([&](const Frame& f)  { ++stats.accepted; stats.sum += f.reading; })
+    .map_error([&](FrameError) { ++stats.rejected; });
+#+END_SRC
+
+#+REVEAL_HTML: <div style="margin-top:10px"></div>
+#+ATTR_REVEAL: :frag appear
+- callers *cannot silently ignore* the error: =[[nodiscard]]= + the type system
+#+ATTR_REVEAL: :frag appear
+- measured CCN (=lizard=): classic =parse_frame= *6* → modern *1*
+
+*** the C++23 exit ramp
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+// today (C++20):
+#include <tl/expected.hpp>
+tl::expected<Frame, FrameError> parse_frame(...);
+
+// the day you switch to C++23:        [C++23]
+#include <expected>
+std::expected<Frame, FrameError> parse_frame(...);
+#+END_SRC
+
+#+ATTR_HTML: :style text-align:center
+same API, same monadic operations (=and_then= / =transform= / =or_else=);
+=tl::expected= is a polyfill you *retire*, not a dependency you keep
+
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+(compile time is a non-argument here: 148 ms vs 167 ms on demo 04)
+
+** the open question
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+ATTR_HTML: :style text-align:center
+*do embedded systems need exceptions at all?*
+
+#+ATTR_REVEAL: :frag (appear appear appear)
+- the industry default says no: =-fno-exceptions= everywhere, and everything
+  in this talk works without them
+- but: Khalil Estell, *"C++ Exceptions for Smaller Firmware"* (CppCon 2024
+  keynote) shows tuned exception handling can be *smaller* than error-code
+  checking; the unwinder cost is an implementation artifact, not a law
+- and Herb Sutter's P0709 ("zero-overhead deterministic exceptions:
+  =throw= as values") would dissolve the dichotomy, but it has not landed
+
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+*my position:* errors that are /normal outcomes/ (timeouts, bad input, lost
+frames) get =expected=, today. Whether =throw= still earns a place for the
+/truly exceptional/ (corrupted state, broken invariants) is a per-system
+decision: *measure on your target first; the question stays open*
+
+* @@html:<span class="act-label act-label--wins">Act III</span>@@ :: small wins that compound
+#+REVEAL_HTML: <div style="margin-top:180px"></div>
+#+ATTR_HTML: :style text-align:center
+The One with the quick wins batch
+
+** =consteval= → the work simply isn't there anymore (demo 05)
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+// classic: 1 KB table in RAM + boot-time init + a flag checked every call
+std::uint32_t crc_table[256];   // .bss — garbage until init runs
+bool table_ready = false;
+
+std::uint32_t crc32_compute(std::span<const std::uint8_t> data) {
+    if (!table_ready) crc32_init();    // runtime branch, every call
+    /* ... */
+}
+#+END_SRC
+
+#+BEGIN_SRC cpp
+// modern: consteval CANNOT fall back to runtime — table is in flash
+consteval std::array<std::uint32_t, 256> make_crc32_table() { /* ... */ }
+inline constexpr auto crc_table = make_crc32_table();
+
+static_assert(crc_table[1]   == 0x77073096u);   // verified before it ships
+static_assert(crc32_compute(/* "abc" */) == 0x352441C2u);
+#+END_SRC
+*** the numbers: demo 05
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_EXPORT html
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic</th><th>modern</th><th>delta</th></tr>
+<tr><td><b>.bss (RAM)</b></td><td>1025 B</td><td>8 B</td>
+    <td class="delta-good"><b>−1017 B</b></td></tr>
+<tr><td><b>.text + .rodata (flash)</b></td><td>136 B</td><td>1088 B</td>
+    <td>table moved to flash</td></tr>
+<tr><td><b>boot-time init</b></td><td>~128k cycles</td><td>0</td>
+    <td class="delta-good"><b>gone</b></td></tr>
+</table>
+<br/>
+#+END_EXPORT
+
+#+REVEAL_HTML: <div style="margin-top:10px"></div>
+#+ATTR_HTML: :style text-align:center
+RAM → flash, init function → gone, "is it ready?" hazard → *impossible by construction*
+
+*** =constinit=: the forgotten sibling
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+// mutable runtime state — but its INITIALIZER is compile-time checked
+struct CrcStats {
+    std::uint32_t frames_checked;
+    std::uint32_t last_crc;
+};
+constinit CrcStats stats{0u, 0u};
+#+END_SRC
+
+#+REVEAL_HTML: <div style="margin-top:10px"></div>
+- =constexpr= → constant, immutable
+- =consteval= → /function/ must run at compile time
+- =constinit= → /variable/ initialized at compile time, *mutable* at runtime
+
+  #+REVEAL_HTML: <div style="margin-top:20px"></div>
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+static-init-order fiasco → ruled out by a keyword, not by a code review
+
+** =std::bit_cast= → type punning, verified (demo 06)
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+// classic: memcpy + runtime assert — checked when it RUNS, debug only
+void serialize(const SensorPacket& pkt, std::span<std::uint8_t> out) {
+    assert(sizeof(SensorPacket) == packet_size);  // in .text, too late
+    std::memcpy(out.data(), &pkt, packet_size);
+}
+#+END_SRC
+
+#+BEGIN_SRC cpp
+// modern: the wire contract is enforced by the COMPILER
+static_assert(sizeof(SensorPacket) == packet_size);
+static_assert(offsetof(SensorPacket, reading) == 2);
+static_assert(std::is_trivially_copyable_v<SensorPacket>);
+static_assert(std::endian::native == std::endian::little);
+
+constexpr PacketBytes serialize(const SensorPacket& pkt) {
+    return std::bit_cast<PacketBytes>(pkt);      // UB-free, constexpr
+}
+static_assert(float_to_bits(1.0f) == 0x3F800000u);  // IEEE-754, checked
+#+END_SRC
+
+#+ATTR_HTML: :style text-align:center
+=.text=: 90 vs 92 B; all of that checking ships *zero bytes*
+
+** ranges → pipelines with names (demo 07)
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+// classic: 3 loops, 2 intermediate heap vectors, intent buried
+std::vector<float> filtered;    /* loop 1: filter   */
+std::vector<float> calibrated;  /* loop 2: calibrate */
+std::vector<float> output;      /* loop 3: window    */
+#+END_SRC
+
+#+BEGIN_SRC cpp
+// modern: range-v3 today, std::ranges in C++23
+auto calibrated_view = raw
+    | views::filter(in_range)        // lazy — no buffer
+    | views::transform(calibrate);   // lazy — no buffer
+
+auto averages = std::span(calibrated.data(), n)
+    | views::sliding(window)
+    | views::transform(window_avg);  // written into caller storage
+
+// and algorithms instead of hand-rolled loops:
+Stats{*ranges::min_element(values), *ranges::max_element(values),
+      ranges::accumulate(values, 0.0f) / count,
+      ranges::count_if(values, is_saturated)};
+#+END_SRC
+
+*** the numbers: demo 07
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_EXPORT html
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic</th><th>modern</th><th>delta</th></tr>
+<tr><td><b>.text (ARM, firmware profile)</b></td><td>1078 B</td><td>558 B</td>
+    <td class="delta-good"><b>−48%</b></td></tr>
+<tr><td><b>heap buffers</b></td><td>3 vectors</td><td>0</td>
+    <td class="delta-good"><b>gone</b></td></tr>
+<tr><td><b>avg CCN (lizard)</b></td><td>7.5</td><td>2.8</td>
+    <td class="delta-good"><b>−63%</b></td></tr>
+<tr><td><b>compile time (host −O2)</b></td><td>239 ms</td><td>451 ms</td>
+    <td class="delta-bad"><b>1.9×</b></td></tr>
+</table>
+<br/>
+#+END_EXPORT
+
+#+ATTR_REVEAL: :frag appear
+- yes, =std::vector= machinery costs more flash than range-v3 pipelines here
+#+ATTR_REVEAL: :frag appear
+- compile time is the honest tax: one-time, mitigable (PCH), and it
+  *drops with* [C++23] =std::ranges= (=views::slide=, =ranges::fold_left=)
+
+** the heap you didn't need (demo 08)
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+// classic: unbounded growth, realloc, fragmentation, bad_alloc
+std::vector<Event> events;
+events.push_back(e);            // may move the whole log, may throw
+#+END_SRC
+
+#+BEGIN_SRC cpp
+// classic, disciplined: reserve the budget up front
+std::vector<Event> events;
+events.reserve(64);             // no realloc... until event #65
+events.push_back(e);            // past the budget: silently grows (or throws)
+#+END_SRC
+
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+=reserve= is the right first step, but the budget is a runtime argument the
+*type forgets*, the storage is still on the heap, and overflow is still silent
+
+*** the modern way: the budget IS the type
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_SRC cpp
+// modern: capacity is a compile-time budget; storage inside the object
+template <typename T, std::size_t Capacity>
+    requires std::is_trivially_copyable_v<T>
+class FixedVector {
+    [[nodiscard]] constexpr bool push_back(const T& value);  // failure = value
+    std::array<T, Capacity> storage_{};
+    std::size_t size_{0};
+};
+
+static_assert(sizeof(EventLog) ==
+              log_capacity * sizeof(Event) + sizeof(std::size_t));
+#+END_SRC
+
+#+REVEAL_HTML: <div style="margin-top:10px"></div>
+#+ATTR_REVEAL: :frag appear
+- =.text=: 40 vs 38 B; the *abstraction is free*, the determinism is the win
+#+ATTR_REVEAL: :frag appear
+- the memory budget is *readable in the type* and provable at link time
+#+ATTR_REVEAL: :frag appear
+- [C++26] =std::inplace_vector= (P0843) standardizes exactly this
+
+*** remember the spoiler?
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+ATTR_HTML: :style text-align:center
+modern firmware =.bss= was *+3800 B bigger*: now you know why
+
+#+REVEAL_HTML: <div style="margin-top:20px"></div>
+- SoA particle pool: 4356 B, event log: 520 B, *declared*, in =.bss=
+- the classic firmware allocates the same data on the *heap at runtime*
+- one shows up in the linker map; the other shows up in a 3am core dump
+
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+*static memory isn't a cost; it's the same memory, made visible*
+
+** more small wins: no demo needed
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+ATTR_HTML: :style font-size:0.65em
+| feature                  | replaces                       | win                                  |
+|--------------------------+--------------------------------+--------------------------------------|
+| designated initializers  | positional brace soup          | =.alpha = 0.3f= reads like docs        |
+| =operator<=>=              | 6 hand-written comparisons     | one line, consistent by construction |
+| =std::span=                | pointer + size pairs           | bounds in the type, no decay         |
+| =std::string_view=         | =const char*= + =strlen=           | length carried, constexpr            |
+| =[[nodiscard]]=            | ignored error codes            | compiler-enforced checking           |
+| =enum class= + =using enum=  | =#define= constants              | scoped, typed, readable switches     |
+| =std::source_location=     | =__FILE__= / =__LINE__= macros     | type-safe, default-argument capture  |
+| brace init ={}=            | silent narrowing               | truncation = compile error           |
+| =if constexpr=             | =#ifdef= ladders                 | both branches type-checked           |
+
+#+REVEAL_HTML: <div style="margin-top:10px"></div>
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+*pattern:* each one moves a bug class from runtime to compile time, at zero cost
+
+* the adoption path
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+*start tomorrow (zero risk):*
+
+#+ATTR_REVEAL: :frag (appear appear appear appear appear appear)
+1. brace init, designated initializers, =enum class=, =[[nodiscard]]=
+2. =constexpr= / =consteval= tables → move data to flash, delete init code
+3. =std::array= + =std::span= → kill pointer+size pairs and raw arrays
+4. =concepts= on your templates → readable contracts, readable errors
+5. =tl::expected= on new error paths → values, not unwinds
+6. closed-set hierarchies → =std::variant= + =std::visit=
+
+#+ATTR_REVEAL: :frag appear
+*then, where profiling says it matters:* SoA layouts, fixed-capacity
+containers, variadic wiring, and re-measure after every step
+
+** rules of thumb
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_EXPORT html
+<table style="font-size: 0.8em;">
+<tr><th>question</th><th>reach for</th></tr>
+<tr><td>set of types open? (plugins, ABI)</td><td>virtual; still the right tool</td></tr>
+<tr><td>set of types closed?</td><td>std::variant + std::visit</td></tr>
+<tr><td>dispatch known at compile time?</td><td>concepts + templates</td></tr>
+<tr><td>error is a frequent outcome?</td><td>expected; never throw</td></tr>
+<tr><td>error is truly exceptional?</td><td>the open question; measure first</td></tr>
+<tr><td>size known or boundable at build?</td><td>std::array / FixedVector, not vector</td></tr>
+<tr><td>hot loop over many objects?</td><td>values first (AoS), then SoA; before threads</td></tr>
+</table>
+#+END_EXPORT
+
+* closing
+** TL;DR
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+BEGIN_EXPORT html
+<table style="font-size: 0.85em;">
+<tr><th></th><th>classic design</th><th>modern design</th></tr>
+<tr><td><b>dispatch</b></td><td>vtable at runtime</td>
+    <td class="delta-good">variant/concepts at compile time</td></tr>
+<tr><td><b>memory</b></td><td>heap, discovered at runtime</td>
+    <td class="delta-good">stack/.bss, visible at link time</td></tr>
+<tr><td><b>errors</b></td><td>exceptions as control flow</td>
+    <td class="delta-good">expected; errors are values</td></tr>
+<tr><td><b>validation</b></td><td>assert when it runs</td>
+    <td class="delta-good">static_assert before it ships</td></tr>
+<tr><td><b>firmware .text</b></td><td>19248 B</td>
+    <td class="delta-good">6140 B (−68%)</td></tr>
+<tr><td><b>behaviour</b></td><td colspan="2" style="text-align:center">identical, proven by equivalence tests</td></tr>
+</table>
+<br/>
+#+END_EXPORT
+
+#+ATTR_REVEAL: :frag appear
+#+ATTR_HTML: :style text-align:center
+move the work to *compile time*; runtime is the most expensive place to find out
+
+** references
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+#+ATTR_HTML: :style font-size:0.65em
+- N. Josuttis: /Rethink Polymorphism in C++/, C++ on Sea 2025 (github.com/philsquared/cpponsea2025-slides)
+- V. Romeo: /More Speed and Simplicity/, CppCon 2025 (github.com/CppCon/CppCon2025)
+- K. Estell: /C++ Exceptions for Smaller Firmware/, CppCon 2024 keynote
+- H. Sutter: P0709 /Zero-overhead deterministic exceptions/; /De-fragmenting C++/, CppCon 2019
+- S. Parent: /Better Code: Runtime Polymorphism/, NDC London 2017
+- K. Iglberger: /Breaking Dependencies: Type Erasure/, CppCon 2021+
+- B. Deane, J. Turner: /constexpr ALL the Things!/, CppCon 2017
+- M. Acton: /Data-Oriented Design and C++/, CppCon 2014
+- P0843 =std::inplace_vector= [C++26]; =std::expected= [C++23]; =std::ranges= [C++20/23]
+- blogs: herbsutter.com, modernescpp.com (R. Grimm), cppstories.com
+
+** resources
+#+REVEAL_HTML: <div style="margin-top:60px"></div>
+- *this repo:* all 9 demo pairs, equivalence tests, benchmarks, Dockerfile
+
+  →  https://github.com/amuela-verisure/talk-202606-madrid
+
+- *build it yourself:*
+#+BEGIN_SRC bash
+docker build -t cpp-design-talk .
+docker run --rm -it cpp-design-talk
+cmake --preset host-debug
+cmake --build --preset host-debug
+ctest --preset host-debug          # 9/9 equivalence tests pass
+./build/host-release/bench_expected
+#+END_SRC
+
+- *firmware, sizes and QEMU:*
+#+BEGIN_SRC bash
+cmake --preset arm-cortexm4
+cmake --build --preset arm-cortexm4
+scripts/compare_size.sh build/arm
+qemu-system-arm -machine mps2-an386 -nographic -semihosting \
+    -kernel build/arm/firmware_modern
+#+END_SRC
+
+** thank you
+#+REVEAL_HTML: <div style="margin-top:240px"></div>
+#+REVEAL_HTML: <div style="text-align:center;font-size:6.0em">🙇‍♂️</div>

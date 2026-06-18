@@ -1,0 +1,412 @@
+/**
+ * Verisure theme for reveal.js
+ * Based on the Verisure corporate PowerPoint template.
+ *
+ * Brand palette
+ * -----------------------------------------
+ *   Verisure Red    #ED002F  -- accent, links, emphasis
+ *   Charcoal Gray   #606367  -- body text, subtitles
+ *   Dark Slate      #44546A  -- headings, secondary dark
+ *   Light Gray      #E7E6E6  -- subtle backgrounds, borders
+ *   White           #FFFFFF  -- slide background
+ *   Accent Blue     #4472C4  -- info highlights, hover
+ *
+ * Typography
+ *   Headings: Arial (bold)
+ *   Body:     Fira Sans SemiBold / Arial
+ *   Code:     Fira Code / monospace
+ */
+
+
+// -- 1. Mixins (utility functions) -------------------------------------------
+@use 'sass:color';
+@use 'template/mixins' as mixins;
+
+
+// -- Brand palette SCSS tokens (used in overrides below) ---------------------
+$v-red:        #ED002F;
+$v-charcoal:   #606367;
+$v-slate:      #44546A;
+$v-light-gray: #E7E6E6;
+$v-accent-blue:#4472C4;
+$v-green:      #388E3C;
+$v-amber:      #E8A317;
+
+
+// -- 2. Settings (override reveal.js defaults) -------------------------------
+@use 'template/settings' with (
+  // Background
+  $background:       #FFFFFF,
+  $background-color: #FFFFFF,
+
+  // Body text
+  $main-font:      '"Fira Sans SemiBold", "Fira Sans", Arial, Helvetica, sans-serif',
+  $main-font-size: 26px,
+  $main-color:     $v-charcoal,
+
+  // Spacing
+  $block-margin: 12px,
+
+  // Headings
+  $heading-margin:         (12px 0 10px 0),
+  $heading-font:           'Arial, Helvetica, sans-serif',
+  $heading-color:          $v-slate,
+  $heading-line-height:    1.2,
+  $heading-letter-spacing: normal,
+  $heading-text-transform: none,
+  $heading-text-shadow:    none,
+  $heading-font-weight:    bold,
+  $heading1-text-shadow:   none,
+  $heading1-size: 2.2em,
+  $heading2-size: 1.65em,
+  $heading3-size: 1.35em,
+  $heading4-size: 1em,
+
+  // Code
+  $code-font: '"Fira Code", Menlo, Consolas, Monaco, "Liberation Mono", monospace',
+
+  // Links
+  $link-color:       $v-red,
+  $link-color-dark:  #B80025,
+  $link-color-hover: $v-accent-blue,
+
+  // Selection
+  $selection-background-color: $v-red,
+  $selection-color:            #FFFFFF,
+
+  // Overlays
+  $overlay-element-bg-color: '240, 240, 240',
+  $overlay-element-fg-color: '0, 0, 0'
+);
+
+
+// -- 3. Theme template (generates base CSS from the variables above) ---------
+@use 'template/theme';
+
+
+// -- 4. Dark background text -------------------------------------------------
+@include mixins.dark-bg-text-color(#fff);
+
+
+// -- 5. Brand tokens as CSS custom properties --------------------------------
+:root {
+  --v-red:        #{$v-red};
+  --v-charcoal:   #{$v-charcoal};
+  --v-slate:      #{$v-slate};
+  --v-light-gray: #{$v-light-gray};
+  --v-accent-blue:#{$v-accent-blue};
+  --v-green:      #{$v-green};
+  --v-amber:      #{$v-amber};
+}
+
+
+// =============================================================================
+// 6. Overrides on top of the generated template
+// =============================================================================
+
+// -- Slide layout (flexbox column, top-aligned headings) ---------------------
+.reveal .slides section,
+.reveal .slides section > section {
+  padding-top: 0;
+  top: 0 !important;
+  display: flex !important;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.reveal .slides section > h1,
+.reveal .slides section > h2,
+.reveal .slides section > h3,
+.reveal .slides section > h4 {
+  flex-shrink: 0;
+}
+
+.reveal .slides section > .outline-text-2,
+.reveal .slides section > .outline-text-3,
+.reveal .slides section > .outline-text-4,
+.reveal .slides section > p,
+.reveal .slides section > ul,
+.reveal .slides section > ol,
+.reveal .slides section > div,
+.reveal .slides section > pre,
+.reveal .slides section > table,
+.reveal .slides section > blockquote,
+.reveal .slides section > aside {
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.reveal .slides section > p,
+.reveal .slides section > ul,
+.reveal .slides section > ol,
+.reveal .slides section > div,
+.reveal .slides section > pre,
+.reveal .slides section > table,
+.reveal .slides section > blockquote {
+  margin-top: 0.3em;
+  margin-bottom: 0.3em;
+}
+
+// -- Slide titles: centered --------------------------------------------------
+.reveal .slides section > h1,
+.reveal .slides section > h2,
+.reveal .slides section > h3,
+.reveal .slides section > h4 {
+  text-align: center;
+  width: 100%;
+}
+
+// -- Slide content: left-aligned ---------------------------------------------
+.reveal .slides section {
+  text-align: left;
+}
+
+// -- Transitional slides (first child of vertical stack) ---------------------
+.reveal .slides > section > section:first-child:not(:only-child) {
+  padding-top: 0;
+}
+
+// -- Title slide -------------------------------------------------------------
+#sec-title-slide {
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0 !important;
+  text-align: left;
+}
+
+#sec-title-slide .cover-banner {
+  width: 100%;
+  height: 55%;
+  background: url('../../../img/cover.png') center / contain no-repeat;
+  background-color: #0a0a0a;
+  flex-shrink: 0;
+  border-bottom: 4px solid var(--v-red);
+}
+
+#sec-title-slide .cover-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex-grow: 1;
+  padding: 0.6em 1.5em 0.8em;
+  position: relative;
+}
+
+#sec-title-slide .cover-text h1 {
+  font-size: 1.6em;
+  color: var(--v-slate);
+  margin: 0 0 0.1em;
+  line-height: 1.1;
+}
+
+#sec-title-slide .cover-text h2 {
+  font-size: 0.73em;
+  color: var(--v-charcoal);
+  font-weight: normal;
+  margin: 0;
+}
+
+#sec-title-slide .cover-text .date {
+  font-size: 0.4em;
+  color: var(--v-charcoal);
+  margin-top: 0.2em;
+}
+
+#sec-title-slide .cover-logo {
+  position: absolute;
+  top: 50%;
+  right: 1.5em;
+  transform: translateY(-50%);
+  height: 52px;
+  width: auto;
+  margin: 0;
+}
+
+// -- Bold text: slate color --------------------------------------------------
+.reveal strong,
+.reveal b {
+  color: var(--v-slate);
+}
+
+// -- Blockquote: brand-styled ------------------------------------------------
+.reveal blockquote {
+  box-sizing: border-box;
+  padding: 15px 20px;
+  background: var(--v-light-gray);
+  border-left: 4px solid var(--v-red);
+  box-shadow: none;
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+// -- Code blocks: dark background --------------------------------------------
+.reveal pre {
+  font-size: 0.50em;
+  box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.reveal pre code {
+  padding: 10px 15px;
+  background: #2d2d2d;
+  color: #f8f8f2;
+  border-radius: 4px;
+  max-height: 380px;
+}
+
+// -- Tables: branded header, striped rows ------------------------------------
+.reveal table th {
+  color: #FFFFFF;
+  background: var(--v-slate);
+}
+
+.reveal table th,
+.reveal table td {
+  padding: 0.4em 0.8em;
+  border-bottom: 1px solid var(--v-light-gray);
+}
+
+.reveal table tbody tr:nth-child(even) {
+  background: #f7f7f7;
+}
+
+.reveal table {
+  font-size: 0.6em;
+}
+
+// -- Heading size override (presentation tuning) -----------------------------
+.reveal h2 {
+  font-size: 1.35em;
+}
+
+// -- Frame helper: light border ----------------------------------------------
+.reveal .r-frame {
+  border-color: var(--v-light-gray);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.reveal a:hover .r-frame {
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+}
+
+// -- Navigation & progress ---------------------------------------------------
+.reveal .controls {
+  color: var(--v-red);
+}
+
+.reveal .progress {
+  background: var(--v-light-gray);
+  color: var(--v-red);
+}
+
+// -- Slide number ------------------------------------------------------------
+.reveal .slide-number {
+  background: none;
+  color: var(--v-charcoal);
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+}
+
+// -- Bullet markers ----------------------------------------------------------
+.reveal ul li::marker {
+  color: var(--v-red);
+}
+
+.reveal ol li::marker {
+  color: var(--v-charcoal);
+  font-weight: bold;
+}
+
+// -- Fragment highlights -----------------------------------------------------
+.reveal .fragment.highlight-red,
+.reveal .fragment.highlight-current-red {
+  color: var(--v-red);
+}
+
+
+// =============================================================================
+// 7. Talk-specific utility classes
+// =============================================================================
+
+// -- Metric display ----------------------------------------------------------
+.metric-good {
+  font-size: 2.5em;
+  font-weight: bold;
+  color: var(--v-green);
+}
+
+.metric-bad {
+  font-size: 2.5em;
+  font-weight: bold;
+  color: var(--v-red);
+}
+
+.metric-warn {
+  font-size: 2.0em;
+  font-weight: bold;
+  color: var(--v-amber);
+}
+
+// -- Table cell / row coloring -----------------------------------------------
+.reveal td.delta-good,
+.reveal .delta-good { color: var(--v-green); }
+
+.reveal td.delta-bad,
+.reveal .delta-bad { color: var(--v-red); }
+
+.reveal td.delta-warn,
+.reveal .delta-warn { color: var(--v-amber); }
+
+.reveal tr.row-good { color: var(--v-green); }
+.reveal tr.row-warn { color: var(--v-amber); }
+.reveal tr.row-bad  { color: var(--v-red); }
+
+// -- Text semantic classes ---------------------------------------------------
+.muted          { color: var(--v-charcoal); }
+.highlight-info { color: var(--v-accent-blue); }
+.highlight-good { color: var(--v-green); }
+.highlight-bad  { color: var(--v-red); }
+.highlight-warn { color: var(--v-amber); }
+
+// -- Act header accents ------------------------------------------------------
+.act-label          { font-weight: bold; }
+.act-label--core    { color: var(--v-accent-blue); }
+.act-label--power   { color: var(--v-accent-blue); }
+.act-label--cost    { color: var(--v-accent-blue); }
+.act-label--wins    { color: var(--v-accent-blue); }
+.act-label--obj     { color: var(--v-accent-blue); }
+
+// -- Side-by-side layout -----------------------------------------------------
+.side-by-side {
+  display: flex;
+  gap: 1em;
+}
+
+.side-by-side > div {
+  flex: 1;
+}
+
+// -- Act section slides ------------------------------------------------------
+.act-slide {
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+}
+
+.act-slide > h2 {
+  flex-shrink: 0;
+  margin-bottom: auto;
+}
+
+// -- Break slide -------------------------------------------------------------
+.break-slide {
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+}

@@ -1,0 +1,714 @@
+/**
+ * Verisure theme for reveal.js
+ * Based on the Verisure corporate PowerPoint template.
+ *
+ * Brand palette
+ * -----------------------------------------
+ *   Verisure Red    #ED002F  -- accent, links, emphasis
+ *   Charcoal Gray   #606367  -- body text, subtitles
+ *   Dark Slate      #44546A  -- headings, secondary dark
+ *   Light Gray      #E7E6E6  -- subtle backgrounds, borders
+ *   White           #FFFFFF  -- slide background
+ *   Accent Blue     #4472C4  -- info highlights, hover
+ *
+ * Typography
+ *   Headings: Arial (bold)
+ *   Body:     Fira Sans SemiBold / Arial
+ *   Code:     Fira Code / monospace
+ */
+:root {
+  --r-background: #FFFFFF;
+  --r-background-color: #FFFFFF;
+  --r-main-font: "Fira Sans SemiBold", "Fira Sans", Arial, Helvetica, sans-serif;
+  --r-main-font-size: 26px;
+  --r-main-color: #606367;
+  --r-block-margin: 12px;
+  --r-heading-margin: 12px 0 10px 0;
+  --r-heading-font: Arial, Helvetica, sans-serif;
+  --r-heading-color: #44546A;
+  --r-heading-line-height: 1.2;
+  --r-heading-letter-spacing: normal;
+  --r-heading-text-transform: none;
+  --r-heading-text-shadow: none;
+  --r-heading-font-weight: bold;
+  --r-heading1-text-shadow: none;
+  --r-heading1-size: 2.2em;
+  --r-heading2-size: 1.65em;
+  --r-heading3-size: 1.35em;
+  --r-heading4-size: 1em;
+  --r-code-font: "Fira Code", Menlo, Consolas, Monaco, "Liberation Mono", monospace;
+  --r-link-color: #ED002F;
+  --r-link-color-dark: #B80025;
+  --r-link-color-hover: #4472C4;
+  --r-selection-background-color: #ED002F;
+  --r-selection-color: #FFFFFF;
+  --r-overlay-element-bg-color: 240, 240, 240;
+  --r-overlay-element-fg-color: 0, 0, 0;
+}
+
+/*********************************************
+ * GLOBAL STYLES
+ *********************************************/
+.reveal-viewport {
+  background: var(--r-background);
+  background-color: var(--r-background-color);
+}
+
+.reveal {
+  font-family: var(--r-main-font);
+  font-size: var(--r-main-font-size);
+  font-weight: normal;
+  color: var(--r-main-color);
+}
+
+.reveal ::selection {
+  color: var(--r-selection-color);
+  background: var(--r-selection-background-color);
+  text-shadow: none;
+}
+
+.reveal ::-moz-selection {
+  color: var(--r-selection-color);
+  background: var(--r-selection-background-color);
+  text-shadow: none;
+}
+
+.reveal .slides section,
+.reveal .slides section > section {
+  line-height: 1.3;
+  font-weight: inherit;
+}
+
+/*********************************************
+ * HEADERS
+ *********************************************/
+.reveal h1,
+.reveal h2,
+.reveal h3,
+.reveal h4,
+.reveal h5,
+.reveal h6 {
+  margin: var(--r-heading-margin);
+  color: var(--r-heading-color);
+  font-family: var(--r-heading-font);
+  font-weight: var(--r-heading-font-weight);
+  line-height: var(--r-heading-line-height);
+  letter-spacing: var(--r-heading-letter-spacing);
+  text-transform: var(--r-heading-text-transform);
+  text-shadow: var(--r-heading-text-shadow);
+  word-wrap: break-word;
+}
+
+.reveal h1 {
+  font-size: var(--r-heading1-size);
+}
+
+.reveal h2 {
+  font-size: var(--r-heading2-size);
+}
+
+.reveal h3 {
+  font-size: var(--r-heading3-size);
+}
+
+.reveal h4 {
+  font-size: var(--r-heading4-size);
+}
+
+.reveal h1 {
+  text-shadow: var(--r-heading1-text-shadow);
+}
+
+/*********************************************
+ * OTHER
+ *********************************************/
+.reveal p {
+  margin: var(--r-block-margin) 0;
+  line-height: 1.3;
+}
+
+/* Remove trailing margins after titles */
+.reveal h1:last-child,
+.reveal h2:last-child,
+.reveal h3:last-child,
+.reveal h4:last-child,
+.reveal h5:last-child,
+.reveal h6:last-child {
+  margin-bottom: 0;
+}
+
+/* Ensure certain elements are never larger than the slide itself */
+.reveal img,
+.reveal video,
+.reveal iframe {
+  max-width: 95%;
+  max-height: 95%;
+}
+
+.reveal strong,
+.reveal b {
+  font-weight: bold;
+}
+
+.reveal em {
+  font-style: italic;
+}
+
+.reveal ol,
+.reveal dl,
+.reveal ul {
+  display: inline-block;
+  text-align: left;
+  margin: 0 0 0 1em;
+}
+
+.reveal ol {
+  list-style-type: decimal;
+}
+
+.reveal ul {
+  list-style-type: disc;
+}
+
+.reveal ul ul {
+  list-style-type: square;
+}
+
+.reveal ul ul ul {
+  list-style-type: circle;
+}
+
+.reveal ul ul,
+.reveal ul ol,
+.reveal ol ol,
+.reveal ol ul {
+  display: block;
+  margin-left: 40px;
+}
+
+.reveal dt {
+  font-weight: bold;
+}
+
+.reveal dd {
+  margin-left: 40px;
+}
+
+.reveal blockquote {
+  display: block;
+  position: relative;
+  width: 70%;
+  margin: var(--r-block-margin) auto;
+  padding: 5px;
+  font-style: italic;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0px 0px 2px rgba(0, 0, 0, 0.2);
+}
+
+.reveal blockquote p:first-child,
+.reveal blockquote p:last-child {
+  display: inline-block;
+}
+
+.reveal q {
+  font-style: italic;
+}
+
+.reveal pre {
+  display: block;
+  position: relative;
+  width: 90%;
+  margin: var(--r-block-margin) auto;
+  text-align: left;
+  font-size: 0.55em;
+  font-family: var(--r-code-font);
+  line-height: 1.2em;
+  word-wrap: break-word;
+  box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.15);
+}
+
+.reveal code {
+  font-family: var(--r-code-font);
+  text-transform: none;
+  tab-size: 2;
+}
+
+.reveal pre code {
+  display: block;
+  padding: 5px;
+  overflow: auto;
+  max-height: 400px;
+  word-wrap: normal;
+}
+
+.reveal .code-wrapper {
+  white-space: normal;
+}
+
+.reveal .code-wrapper code {
+  white-space: pre;
+}
+
+.reveal table {
+  margin: auto;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.reveal table th {
+  font-weight: bold;
+}
+
+.reveal table th,
+.reveal table td {
+  text-align: left;
+  padding: 0.2em 0.5em 0.2em 0.5em;
+  border-bottom: 1px solid;
+}
+
+.reveal table th[align=center],
+.reveal table td[align=center] {
+  text-align: center;
+}
+
+.reveal table th[align=right],
+.reveal table td[align=right] {
+  text-align: right;
+}
+
+.reveal table tbody tr:last-child th,
+.reveal table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.reveal sup {
+  vertical-align: super;
+  font-size: smaller;
+}
+
+.reveal sub {
+  vertical-align: sub;
+  font-size: smaller;
+}
+
+.reveal small {
+  display: inline-block;
+  font-size: 0.6em;
+  line-height: 1.2em;
+  vertical-align: top;
+}
+
+.reveal small * {
+  vertical-align: top;
+}
+
+.reveal img {
+  margin: var(--r-block-margin) 0;
+}
+
+/*********************************************
+ * LINKS
+ *********************************************/
+.reveal a {
+  color: var(--r-link-color);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.reveal a:hover {
+  color: var(--r-link-color-hover);
+  text-shadow: none;
+  border: none;
+}
+
+.reveal .roll span:after {
+  color: #fff;
+  background: var(--r-link-color-dark);
+}
+
+/*********************************************
+ * Frame helper
+ *********************************************/
+.reveal .r-frame {
+  border: 4px solid var(--r-main-color);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.15);
+}
+
+.reveal a .r-frame {
+  transition: all 0.15s linear;
+}
+
+.reveal a:hover .r-frame {
+  border-color: var(--r-link-color);
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.55);
+}
+
+/*********************************************
+ * NAVIGATION CONTROLS
+ *********************************************/
+.reveal .controls {
+  color: var(--r-link-color);
+}
+
+/*********************************************
+ * PROGRESS BAR
+ *********************************************/
+.reveal .progress {
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--r-link-color);
+}
+
+/*********************************************
+ * PRINT BACKGROUND
+ *********************************************/
+@media print {
+  .backgrounds {
+    background-color: var(--r-background-color);
+  }
+}
+section.has-dark-background,
+section.has-dark-background h1,
+section.has-dark-background h2,
+section.has-dark-background h3,
+section.has-dark-background h4,
+section.has-dark-background h5,
+section.has-dark-background h6 {
+  color: #fff;
+}
+
+:root {
+  --v-red: #ED002F;
+  --v-charcoal: #606367;
+  --v-slate: #44546A;
+  --v-light-gray: #E7E6E6;
+  --v-accent-blue:#4472C4;
+  --v-green: #388E3C;
+  --v-amber: #E8A317;
+}
+
+.reveal .slides section,
+.reveal .slides section > section {
+  padding-top: 0;
+  top: 0 !important;
+  display: flex !important;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: hidden;
+}
+
+.reveal .slides section > h1,
+.reveal .slides section > h2,
+.reveal .slides section > h3,
+.reveal .slides section > h4 {
+  flex-shrink: 0;
+}
+
+.reveal .slides section > .outline-text-2,
+.reveal .slides section > .outline-text-3,
+.reveal .slides section > .outline-text-4,
+.reveal .slides section > p,
+.reveal .slides section > ul,
+.reveal .slides section > ol,
+.reveal .slides section > div,
+.reveal .slides section > pre,
+.reveal .slides section > table,
+.reveal .slides section > blockquote,
+.reveal .slides section > aside {
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.reveal .slides section > p,
+.reveal .slides section > ul,
+.reveal .slides section > ol,
+.reveal .slides section > div,
+.reveal .slides section > pre,
+.reveal .slides section > table,
+.reveal .slides section > blockquote {
+  margin-top: 0.3em;
+  margin-bottom: 0.3em;
+}
+
+/* Slide titles: centered */
+.reveal .slides section > h1,
+.reveal .slides section > h2,
+.reveal .slides section > h3,
+.reveal .slides section > h4 {
+  text-align: center;
+  width: 100%;
+}
+
+/* Slide content: left-aligned */
+.reveal .slides section {
+  text-align: left;
+}
+
+.reveal .slides > section > section:first-child:not(:only-child) {
+  padding-top: 0;
+}
+
+#sec-title-slide {
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0 !important;
+  text-align: left;
+}
+
+#sec-title-slide .cover-banner {
+  width: 100%;
+  height: 55%;
+  background: url("./img/cover.png") center/contain no-repeat;
+  background-color: #0a0a0a;
+  flex-shrink: 0;
+  border-bottom: 4px solid var(--v-red);
+}
+
+#sec-title-slide .cover-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex-grow: 1;
+  padding: 0.3em 1.0em 0.8em;
+  position: relative;
+}
+
+#sec-title-slide .cover-text h1 {
+  font-size: 1.6em;
+  color: var(--v-slate);
+  margin: 0 0 0.1em;
+  line-height: 1.1;
+}
+
+#sec-title-slide .cover-text h2 {
+  font-size: 0.73em;
+  color: var(--v-charcoal);
+  font-weight: normal;
+  margin: 0;
+}
+
+#sec-title-slide .cover-text .date {
+  font-size: 0.4em;
+  color: var(--v-charcoal);
+  margin-top: 0.2em;
+}
+
+#sec-title-slide .cover-logo {
+  position: absolute;
+  top: 65%;
+  right: 1.5em;
+  transform: translateY(-50%);
+  height: 52px;
+  width: auto;
+  margin: 0;
+}
+
+.reveal strong,
+.reveal b {
+  color: var(--v-slate);
+}
+
+.reveal blockquote {
+  box-sizing: border-box;
+  padding: 15px 20px;
+  background: var(--v-light-gray);
+  border-left: 4px solid var(--v-red);
+  box-shadow: none;
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.reveal pre {
+  font-size: 0.5em;
+  box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.reveal pre code {
+  padding: 10px 15px;
+  background: #2d2d2d;
+  color: #f8f8f2;
+  border-radius: 4px;
+  max-height: 380px;
+}
+
+.reveal table th {
+  color: #FFFFFF;
+  background: var(--v-slate);
+}
+
+.reveal table th,
+.reveal table td {
+  padding: 0.4em 0.8em;
+  border-bottom: 1px solid var(--v-light-gray);
+}
+
+.reveal table tbody tr:nth-child(even) {
+  background: #f7f7f7;
+}
+
+.reveal table {
+  font-size: 0.6em;
+}
+
+.reveal h2 {
+  font-size: 1.35em;
+}
+
+.reveal .r-frame {
+  border-color: var(--v-light-gray);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.reveal a:hover .r-frame {
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+}
+
+.reveal .controls {
+  color: var(--v-red);
+}
+
+.reveal .progress {
+  background: var(--v-light-gray);
+  color: var(--v-red);
+}
+
+.reveal .slide-number {
+  background: none;
+  color: var(--v-charcoal);
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+}
+
+.reveal ul li::marker {
+  color: var(--v-red);
+}
+
+.reveal ol li::marker {
+  color: var(--v-charcoal);
+  font-weight: bold;
+}
+
+.reveal .fragment.highlight-red,
+.reveal .fragment.highlight-current-red {
+  color: var(--v-red);
+}
+
+.metric-good {
+  font-size: 2.5em;
+  font-weight: bold;
+  color: var(--v-green);
+}
+
+.metric-bad {
+  font-size: 2.5em;
+  font-weight: bold;
+  color: var(--v-red);
+}
+
+.metric-warn {
+  font-size: 2em;
+  font-weight: bold;
+  color: var(--v-amber);
+}
+
+.reveal td.delta-good,
+.reveal .delta-good {
+  color: var(--v-green);
+}
+
+.reveal td.delta-bad,
+.reveal .delta-bad {
+  color: var(--v-red);
+}
+
+.reveal td.delta-warn,
+.reveal .delta-warn {
+  color: var(--v-amber);
+}
+
+.reveal tr.row-good {
+  color: var(--v-green);
+}
+
+.reveal tr.row-warn {
+  color: var(--v-amber);
+}
+
+.reveal tr.row-bad {
+  color: var(--v-red);
+}
+
+.muted {
+  color: var(--v-charcoal);
+}
+
+.highlight-info {
+  color: var(--v-accent-blue);
+}
+
+.highlight-good {
+  color: var(--v-green);
+}
+
+.highlight-bad {
+  color: var(--v-red);
+}
+
+.highlight-warn {
+  color: var(--v-amber);
+}
+
+.act-label {
+  font-weight: bold;
+}
+
+.act-label--core {
+  color: var(--v-accent-blue);
+}
+
+.act-label--power {
+  color: var(--v-accent-blue);
+}
+
+.act-label--cost {
+  color: var(--v-accent-blue);
+}
+
+.act-label--wins {
+  color: var(--v-accent-blue);
+}
+
+.act-label--obj {
+  color: var(--v-accent-blue);
+}
+
+.side-by-side {
+  display: flex;
+  gap: 1em;
+}
+
+.side-by-side > div {
+  flex: 1;
+}
+
+.act-slide {
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+}
+
+.act-slide > h2 {
+  flex-shrink: 0;
+  margin-bottom: auto;
+}
+
+.break-slide {
+  justify-content: center !important;
+  align-items: center !important;
+  text-align: center !important;
+}
